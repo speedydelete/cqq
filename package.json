@@ -1,0 +1,12 @@
+{
+    "name": "cyy",
+    "version": "1.0.0",
+    "description": "The C+1.5 programming language",
+    "license": "MIT",
+    "author": "speedydelete",
+    "type": "module",
+    "dependencies": {
+        "@types/node": "^26.6.6",
+        "typescript": "^7.0.2"
+    }
+}
