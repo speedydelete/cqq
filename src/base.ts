@@ -16,7 +16,7 @@ export function getInternalPath(...parts: string[]): string {
 }
 
 
-export const DEEP_COPY = Symbol('DEEP_COPY');
+export const DEEP_COPY_SYMBOL = Symbol('DEEP_COPY_SYMBOL');
 
 function _deepCopy(value: unknown, refs: WeakMap<object, object>): unknown {
     if (typeof value !== 'object' || value === null) {
@@ -49,8 +49,8 @@ function _deepCopy(value: unknown, refs: WeakMap<object, object>): unknown {
             out.add(_deepCopy(x, refs));
         }
         return out;
-    } else if (DEEP_COPY in value) {
-        return (value[DEEP_COPY] as () => unknown)();
+    } else if (DEEP_COPY_SYMBOL in value) {
+        return (value[DEEP_COPY_SYMBOL] as () => unknown)();
     } else {
         let out: {[key: PropertyKey]: unknown} = {};
         for (let key of Reflect.ownKeys(value)) {

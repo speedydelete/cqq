@@ -2,7 +2,7 @@
 import * as fs from 'node:fs/promises';
 import {execSync} from 'node:child_process';
 
-import {unexpectedError, DEEP_COPY, deepCopy, getInternalPath, HasPos, error} from './base.js';
+import {unexpectedError, DEEP_COPY_SYMBOL, deepCopy, getInternalPath, HasPos, error} from './base.js';
 
 
 export class BitTypeStorageData {
@@ -355,7 +355,7 @@ export class ByteArray {
         return this.view.byteLength;
     }
 
-    [DEEP_COPY](): ByteArray {
+    [DEEP_COPY_SYMBOL](): ByteArray {
         return new ByteArray(this.buffer.slice());
     }
 
