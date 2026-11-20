@@ -2,7 +2,7 @@
 import * as fs from 'node:fs/promises';
 import {execSync} from 'node:child_process';
 
-import {unexpectedError, deepCopy, getInternalPath, HasPos, error} from './base.js';
+import {unexpectedError, DEEP_COPY, deepCopy, getInternalPath, HasPos, error} from './base.js';
 
 
 export class BitTypeStorageData {
@@ -355,6 +355,10 @@ export class ByteArray {
         return this.view.byteLength;
     }
 
+    [DEEP_COPY](): ByteArray {
+        return new ByteArray(this.buffer.slice());
+    }
+
     [Symbol.iterator](): ArrayIterator<number> {
         return (new Uint8Array(this.buffer))[Symbol.iterator]();
     }
@@ -475,7 +479,7 @@ export class ByteArray {
     }
 
     join(sep: string): string {
-        return (new Uint8Array(this.view.buffer)).join(', ');
+        return (new Uint8Array(this.view.buffer)).join(sep);
     }
 
 }
