@@ -2,9 +2,11 @@
 import './globals.d.ts';
 
 import * as path from 'node:path';
-import {existsSync} from 'node:fs';
-import * as fs from 'node:fs/promises';
-import {execSync} from 'node:child_process';
+
+
+export function unexpectedError(message: string): never {
+    throw new Error(`This error should not occur, please report it: ${message}`);
+}
 
 
 export const BASE_INTERNAL_PATH = path.normalize(import.meta.dirname);
@@ -14,88 +16,49 @@ export function getInternalPath(...parts: string[]): string {
 }
 
 
-export interface CTypeData {
-    size: number;
-    align: number;
-    bits: number;
-}
-
-export const C_VALUES: {[key: string]: number} = {};
-
-export const C_TYPES: {[key: string]: CTypeData} = {};
-
-if (!existsSync(getInternalPath('.c_data.txt'))) {
-    try {
-        execSync(`cc -o '${getInternalPath('a.out')}' '${getInternalPath('src/data_getter.c')}'`, {stdio: ['ignore', 'ignore', 'inherit']});
-    } catch (error) {
-        console.error(`Error while compiling C data getter`);
-        process.exit(1);
+function _deepCopy(value: unknown, refs: WeakMap<object, object>): unknown {
+    if (typeof value !== 'object' || value === null) {
+        return value;
     }
-    try {
-        execSync(`'${getInternalPath('a.out')}' > ${getInternalPath('.c_data.txt')}`, {stdio: ['ignore', 'ignore', 'inherit']});
-    } catch (error) {
-        console.error(`Error while running C data getter`);
-        process.exit(1);
+    let reference = refs.get(value);
+    if (reference !== undefined) {
+        return reference;
     }
-}
-
-let data = (await fs.readFile(getInternalPath('.c_data.txt'))).toString();
-for (let line of data.split('\n')) {
-    let match: RegExpMatchArray | null;
-    if (match = line.match(/^value (.+) = (-?\d+)$/)) {
-        let name = match[1];
-        let value = Number(match[2]);
-        C_VALUES[name] = value;
-    } else if (match = line.match(/^type (.+): size = (\d+), align = (\d+), bits = (\d+)$/)) {
-        let name = match[1];
-        let size = Number(match[2]);
-        let align = Number(match[3]);
-        let bits = Number(match[4]);
-        C_TYPES[name] = {size, align, bits};
+    if (Array.isArray(value)) {
+        let out: unknown[] = [];
+        refs.set(value, out);
+        for (let x of value) {
+            out.push(_deepCopy(x, refs));
+        }
+        return out;
+    } else if (value instanceof Date || value instanceof RegExp || value instanceof ArrayBuffer || value instanceof Uint8Array || /*... add more stuff here ...*/) {
+        return structuredClone(value);
+    } else if (value instanceof Map) {
+        let out = new Map();
+        refs.set(value, out);
+        for (let [key, x] of value) {
+            out.set(key, _deepCopy(x, refs));
+        }
+        return out;
+    } else if (value instanceof Set) {
+        let out = new Set();
+        refs.set(value, out);
+        for (let x of value) {
+            out.add(_deepCopy(x, refs));
+        }
+        return out;
     } else {
-        throw new Error(`Invalid line in .c_data.txt: '${line}'`);
+        let out: {[key: PropertyKey]: unknown} = Object.create(Object.getPrototypeOf(value));
+        for (let key of Reflect.ownKeys(value)) {
+            out[key] = _deepCopy((value as {[key: PropertyKey]: unknown})[key], refs);
+        }
+        return out;
     }
 }
 
-function getCValue<T>(data: {[key: string]: T}, name: string): T {
-    let out = data[name];
-    if (out === undefined) {
-        console.error(`Error: C backend does not define ${name}`);
-        process.exit(1);
-    }
-    return out;
+export function deepCopy<T>(value: T): T {
+    return _deepCopy(value, new WeakMap()) as T;
 }
-
-export const C_VERSION = getCValue(C_VALUES, '__STDC_VERSION__');
-
-export const CHAR_BIT = getCValue(C_VALUES, 'CHAR_BIT');
-
-export const C_BOOL = getCValue(C_TYPES, 'bool');
-export const C_CHAR = getCValue(C_TYPES, 'char');
-export const C_SIGNED_CHAR = getCValue(C_TYPES, 'signed char');
-export const C_UNSIGNED_CHAR = getCValue(C_TYPES, 'unsigned char');
-export const C_INT = getCValue(C_TYPES, 'int');
-export const C_UNSIGNED_INT = getCValue(C_TYPES, 'unsigned int');
-
-export const C_FLOAT = getCValue(C_TYPES, 'float');
-if (C_FLOAT.bits !== 32) {
-    console.error(`C backend's float type is not 32 bits`);
-    process.exit(1);
-}
-
-export const C_DOUBLE = getCValue(C_TYPES, 'double');
-if (C_DOUBLE.bits !== 64) {
-    console.error(`C backend's double type is not 64 bits`);
-    process.exit(1);
-}
-
-export const C_POINTER = getCValue(C_TYPES, 'char*');
-
-export const C_SIZE_T = getCValue(C_TYPES, 'size_t');
-export const C_PTRDIFF_T = getCValue(C_TYPES, 'ptrdiff_t');
-export const C_MAX_ALIGN_T = getCValue(C_TYPES, 'max_align_t');
-export const C_UINTPTR_T = getCValue(C_TYPES, 'uintptr_t');
-
 
 
 export interface SimplePosition {
@@ -157,38 +120,116 @@ export const EOF = Symbol();
 export type EOF = typeof EOF;
 
 
+export const PREFIX_UNARY_OPERATORS = new Set([
+    // numbers
+    '+', '-', '~',
+    // pointers
+    '*', '&',
+    // booleans
+    '!',
+    // types
+    'mut', 'volatile', 'fixed', 'movable', 'free',
+    // general
+    'decltype', 'typeof',
+] as const);
+export type PrefixUnaryOperator = typeof PREFIX_UNARY_OPERATORS extends Set<infer T> ? T : never;
+
+export const POSTFIX_UNARY_OPERATORS = new Set([
+    // members
+    '.', '->', '::',
+    // types
+    'mut', 'volatile', 'fixed', 'movable', 'free', '*', '&', '?',
+] as const);
+export type PostfixUnaryOperator = typeof POSTFIX_UNARY_OPERATORS extends Set<infer T> ? T : never;
+
+export const BINARY_OPERATORS = new Set([
+    // numbers
+    '+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>',
+    // scalars
+    '<', '<=', '>', '>=', '..<', '..=',
+    // booleans
+    '&&', '||', '^^',
+    // general
+    '==', '!=', '~=', '~!=', '??',
+] as const);
+export type BinaryOperator = typeof BINARY_OPERATORS extends Set<infer T> ? T : never;
+
+export const OVERLOAD_OPERATORS = new Set([
+    // prefix unary
+        // numbers
+        '+.', '-.', '~.',
+        // pointers
+        '*.', '&.',
+        // booleans
+        '!.',
+        // types
+        'mut.', 'volatile.', 'fixed.', 'movable.', 'free.',
+    // postfix unary
+        // types
+        '.mut', '.volatile', '.fixed', '.movable', '.free', '.*', '.&', '.?',
+    // binary
+        // numbers
+        '+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>',
+        // scalars
+        '<', '<=', '>', '>=', '..<', '..=',
+        // booleans
+        '&&', '||', '^^',
+        // general
+        '==', '!=', '~=', '~!=', '??',
+    // other
+        // postfix
+        '[]', '()',
+        // ternary conditional
+        '?:',
+]);
+export type OverloadOperator = typeof OVERLOAD_OPERATORS extends Set<infer T> ? T : never;
+
+
 export const SYMBOLS = new Set([
     // basic
-    '.', ',', ':', ';', '::',
+    ',', ':', ';',
     // grouping
     '(', ')', '[', ']', '{', '}',
-    // arithmetic operators
-    '+', '-', '*', '/', '%',
-    // bitwise operators
-    '~', '&', '|', '^', '<<', '>>',
-    // relational operators
-    '==', '!=', '<', '<=', '>', '>=',
-    // logical operators
-    '!', '&&', '||', '^^',
-    // range creation operators
-    '..<', '..=',
-    // other operators
-    '=', '<=<', '??', '?',
+    // prefix unary operators
+        // numbers
+        '+', '-', '~',
+        // pointers
+        '*', '&',
+        // booleans
+        '!',
+    // postfix unary operators
+        // members
+        '.', '->', '::',
+        // types
+        '*', '&',
+    // binary operators
+        // numbers
+        '+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>',
+        // scalars
+        '<', '<=', '>', '>=', '..<', '..=',
+        // booleans
+        '&&', '||', '^^',
+        // general
+        '==', '!=', '~=', '~!=', '??',
 ] as const);
 export type CYYSymbol = typeof SYMBOLS extends Set<infer T> ? T : never;
 
 export const KEYWORDS = new Set([
-    // primitive types
-    'never', 'void', 'bool', 'int', 'uint', 'size', 'ssize', 'uintptr', 'char', 'string', 'type', 'any', 'code',
-    // operators
-    'mut', 'volatile', 'typeof', 'template',
-    // other constructs
-    'struct', 'union', 'enum', 'class', 'auto',
+    // modules
+    'module', 'import', 'export',
     // control flow
-    'if', 'else', 'for', 'while', 'break', 'continue', 'match', 'defer',
+    'if', 'else', 'for', 'while', 'break', 'continue', 'match',
+    // primitive types
+    'never', 'void', 'bool', 'int', 'uint', 'float16', 'bfloat16', 'float32', 'float64', 'float80', 'float128', 'size', 'ssize', 'uintptr', 'char', 'string', 'type', 'any', 'code',
+    // operators
+    'mut', 'volatile', 'decltype', 'typeof', 'fixed', 'movable', 'free',
+    // constructs
+    'this', 'auto', 'struct', 'union', 'enum', 'class', 'operator', 'template', 'namespace',
+    // declaration qualifiers
+    'constexpr', 'inline', 'alignas',
 ] as const);
 export type BasicKeyword = typeof KEYWORDS extends Set<infer T> ? T : never;
-export type Keyword = BasicKeyword | `int${number}` | `uint${number}` | `float${number}`;
+export type Keyword = BasicKeyword | `int${number}` | `uint${number}`;
 
 
 export type BaseToken = {pos: Position};
@@ -242,7 +283,7 @@ type MatcherReturnType<T extends Matcher> =
     T extends EOF ? EOF :
     T extends Token['type'] ? Extract<Token, {type: T}> :
     T extends BasicKeyword ? KeywordToken<T> :
-    T extends 'intn' | 'uintn' | 'floatn' ? (T extends `${infer T extends 'int' | 'uint' | 'float'}n` ? KeywordToken<`${T}${number}`> : never) : 
+    T extends 'intn' | 'uintn' ? (T extends `${infer T extends 'int' | 'uint'}n` ? KeywordToken<`${T}${number}`> : never) :
     T extends CYYSymbol ? SymbolToken<T> :
     T extends `identifier ${string}` ? IdentifierToken :
     // T extends (infer U)[] ? MatcherReturnType<U> :
