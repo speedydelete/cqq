@@ -31,7 +31,7 @@ function _deepCopy(value: unknown, refs: WeakMap<object, object>): unknown {
             out.push(_deepCopy(x, refs));
         }
         return out;
-    } else if (value instanceof Date || value instanceof RegExp || value instanceof ArrayBuffer || value instanceof Uint8Array || /*... add more stuff here ...*/) {
+    } else if (value instanceof Date || value instanceof RegExp || value instanceof ArrayBuffer || value instanceof DataView || value instanceof Int8Array || value instanceof Int16Array || value instanceof Int32Array || value instanceof BigInt64Array || value instanceof Uint8Array || value instanceof Uint16Array || value instanceof Uint32Array || value instanceof BigUint64Array) {
         return structuredClone(value);
     } else if (value instanceof Map) {
         let out = new Map();
