@@ -132,7 +132,7 @@ export const PREFIX_UNARY_OPERATORS = new Set([
     // booleans
     '!',
     // types
-    'mut', 'volatile', 'fixed', 'movable', 'free',
+    'mut', 'volatile', 'own', 'free',
     // general
     'decltype', 'typeof',
 ] as const);
@@ -142,7 +142,7 @@ export const POSTFIX_UNARY_OPERATORS = new Set([
     // members
     '.', '->', '::',
     // types
-    'mut', 'volatile', 'fixed', 'movable', 'free', '*', '&', '?',
+    'mut', 'volatile', 'own', 'free', '*', '&', '?',
 ] as const);
 export type PostfixUnaryOperator = typeof POSTFIX_UNARY_OPERATORS extends Set<infer T> ? T : never;
 
@@ -167,10 +167,10 @@ export const OVERLOAD_OPERATORS = new Set([
         // booleans
         '!.',
         // types
-        'mut.', 'volatile.', 'fixed.', 'movable.', 'free.',
+        'mut.', 'volatile.', 'own.', 'free.',
     // postfix unary
         // types
-        '.mut', '.volatile', '.fixed', '.movable', '.free', '.*', '.&', '.?',
+        '.mut', '.volatile', '.own', '.free', '.*', '.&', '.?',
     // binary
         // numbers
         '+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>',
@@ -226,7 +226,7 @@ export const KEYWORDS = new Set([
     // primitive types
     'never', 'void', 'bool', 'int', 'uint', 'float16', 'bfloat16', 'float32', 'float64', 'float80', 'float128', 'size', 'ssize', 'uintptr', 'char', 'string', 'type', 'any', 'code',
     // operators
-    'mut', 'volatile', 'decltype', 'typeof', 'fixed', 'movable', 'free',
+    'mut', 'volatile', 'decltype', 'typeof', 'own', 'free',
     // constructs
     'this', 'auto', 'struct', 'union', 'enum', 'class', 'operator', 'template', 'namespace',
     // declaration qualifiers
