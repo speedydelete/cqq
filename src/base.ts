@@ -153,6 +153,8 @@ export const BINARY_OPERATORS = new Set([
     '<', '<=', '>', '>=', '..<', '..=',
     // booleans
     '&&', '||', '^^',
+    // types
+    'extends',
     // general
     '==', '!=', '~=', '~!=', '??',
 ] as const);
@@ -161,16 +163,16 @@ export type BinaryOperator = typeof BINARY_OPERATORS extends Set<infer T> ? T : 
 export const OVERLOAD_OPERATORS = new Set([
     // prefix unary
         // numbers
-        '+.', '-.', '~.',
+        '+', '-', '~',
         // pointers
         '*.', '&.',
         // booleans
-        '!.',
+        '!',
         // types
-        'mut.', 'volatile.', 'own.', 'free.',
+        'mut.', 'volatile.',
     // postfix unary
         // types
-        '.mut', '.volatile', '.own', '.free', '.*', '.&', '.?',
+        '.mut', '.volatile', '.*', '.&', '.?',
     // binary
         // numbers
         '+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>',
@@ -178,6 +180,8 @@ export const OVERLOAD_OPERATORS = new Set([
         '<', '<=', '>', '>=', '..<', '..=',
         // booleans
         '&&', '||', '^^',
+        // types
+        'extends',
         // general
         '==', '!=', '~=', '~!=', '??',
     // other
@@ -226,7 +230,7 @@ export const KEYWORDS = new Set([
     // primitive types
     'never', 'void', 'bool', 'int', 'uint', 'float16', 'bfloat16', 'float32', 'float64', 'float80', 'float128', 'size', 'ssize', 'uintptr', 'char', 'string', 'type', 'any', 'code',
     // operators
-    'mut', 'volatile', 'decltype', 'typeof', 'own', 'free',
+    'mut', 'volatile', 'decltype', 'typeof', 'extends',
     // constructs
     'this', 'auto', 'struct', 'union', 'enum', 'class', 'operator', 'template', 'namespace',
     // declaration qualifiers
