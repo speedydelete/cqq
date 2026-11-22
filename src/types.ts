@@ -495,11 +495,31 @@ export interface Value {
 };
 
 
+export class Region extends Array<Region> {
+
+    constructor() {
+        super();
+    }
+
+    contains(other: Region): boolean {
+        for (let value of this) {
+            if (value === other || value.contains(other)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+}
+
+
 export namespace t {
 
-    export interface Region {
-        __placeholder__: bigint;
-    }
+    export type Region = Region[];
+
+    // export interface Region {
+    //     __placeholder__: bigint;
+    // }
 
     export interface DeclInfo {
         name: string;
