@@ -497,7 +497,7 @@ export interface Value {
 
 export namespace t {
 
-    export interface Lifetime {
+    export interface Region {
         __placeholder__: bigint;
     }
 
@@ -505,7 +505,7 @@ export namespace t {
         name: string;
         type: Type;
         value?: ByteArray;
-        lifetime: Lifetime;
+        region: Region;
     }
 
     export interface Name {
@@ -524,7 +524,7 @@ export namespace t {
         align: number;
         preferredAlign: number;
         mut: boolean;
-        lifetime: Lifetime;
+        region: Region;
         volatile: boolean;
         value?: ByteArray;
     }
@@ -566,14 +566,14 @@ export namespace t {
     };
 
     export type Void = BaseObject<'void'>;
-    export function void_(lifetime: Lifetime): Void {
+    export function void_(region: Region): Void {
         return {
             type: 'void',
             _key: 'void',
             size: 0,
             align: 1,
             preferredAlign: 1,
-            lifetime,
+            region,
             mut: false,
             volatile: false,
         };
@@ -581,14 +581,14 @@ export namespace t {
 
     export type Bool = BaseObject<'bool'>;
     let i1 = dataLayout.getIntegerType(1);
-    export function bool(lifetime: Lifetime): Bool {
+    export function bool(region: Region): Bool {
         return {
             type: 'bool',
             _key: 'bool',
             size: i1.byteSize,
             align: i1.byteAlign,
             preferredAlign: i1.bytePreferredAlign,
-            lifetime,
+            region,
             mut: false,
             volatile: false,
         };
@@ -601,14 +601,14 @@ export namespace t {
 
     let i8 = dataLayout.getIntegerType(8);
     export type Char = BaseInteger<'char', false>;
-    export function char(lifetime: Lifetime): Char {
+    export function char(region: Region): Char {
         return {
             type: 'char',
             _key: 'char',
             size: i8.byteSize,
             align: i8.byteAlign,
             preferredAlign: i8.bytePreferredAlign,
-            lifetime,
+            region,
             signed: false,
             bits: i8.bits,
             mut: false,
@@ -617,7 +617,7 @@ export namespace t {
     }
 
     export type Int = BaseInteger<'int', true>;
-    export function int(lifetime: Lifetime, bits?: number): Int {
+    export function int(region: Region, bits?: number): Int {
         let data = dataLayout.getIntegerType(bits ?? cTypeBits['int']);
         return {
             type: 'int',
@@ -625,7 +625,7 @@ export namespace t {
             size: data.byteSize,
             align: data.byteAlign,
             preferredAlign: data.bytePreferredAlign,
-            lifetime,
+            region,
             signed: true,
             bits: data.bits,
             mut: false,
@@ -634,7 +634,7 @@ export namespace t {
     }
 
     export type Uint = BaseInteger<'uint', false>;
-    export function uint(lifetime: Lifetime, bits?: number): Uint {
+    export function uint(region: Region, bits?: number): Uint {
         let data = dataLayout.getIntegerType(bits ?? cTypeBits['int']);
         return {
             type: 'uint',
@@ -642,12 +642,24 @@ export namespace t {
             size: data.byteSize,
             align: data.byteAlign,
             preferredAlign: data.bytePreferredAlign,
-            lifetime,
+            region,
             signed: false,
             bits: data.bits,
             mut: false,
             volatile: false,
         };
+    }
+
+    export function size(region: Region): Uint {
+        return uint(region, cTypeBits['size_t']);
+    }
+
+    export function ssize(region: Region): Uint {
+        return uint(region, cTypeBits['ptrdiff_t']);
+    }
+
+    export function uintptr(region: Region): Uint {
+        return uint(region, cTypeBits['uintptr_t']);
     }
 
     export type Integer = Char | Int | Uint;
@@ -678,7 +690,7 @@ export namespace t {
         'float128': dataLayout.floatingTypes[128],
     };
 
-    export function float<T extends FloatingTypeName>(type: T, lifetime: Lifetime): BaseFloating<T> {
+    export function float<T extends FloatingTypeName>(type: T, region: Region): BaseFloating<T> {
         let data = FLOAT_TYPE_DATA[type];
         return {
             type,
@@ -686,7 +698,7 @@ export namespace t {
             size: data.byteSize,
             align: data.byteAlign,
             preferredAlign: data.bytePreferredAlign,
-            lifetime,
+            region,
             mut: false,
             volatile: false,
             bits: data.bits,
@@ -706,39 +718,21 @@ export namespace t {
         return out as T;
     }
 
-    export const int_ = setName(int(), undefined, 'int');
-    export const uint_ = setName(uint(cTypeBits['int']), undefined, 'uint');
-    export const size = setName(uint(cTypeBits['size_t']), undefined, 'size');
-    export const ssize = setName(int(cTypeBits['ptrdiff_t']), undefined, 'ssize');
-    export const uintptr = setName(int(cTypeBits['uintptr_t']), undefined, 'uintptr');
-
     export function setMut<T extends Object>(type: T, mut: boolean): T {
         let out = deepCopy(type);
         out.mut = mut;
-        let value = typeCache.get(getKey(out));
-        if (value !== undefined) {
-            return value as T;
-        }
         return out;
     }
 
     export function setVolatile<T extends Object>(type: T, mut: boolean): T {
         let out = deepCopy(type);
         out.mut = mut;
-        let value = typeCache.get(getKey(out));
-        if (value !== undefined) {
-            return value as T;
-        }
         return out;
     }
 
-    export function setLifetime<T extends Object>(type: T, lifetime: Lifetime): T {
+    export function setRegion<T extends Object>(type: T, region: Region): T {
         let out = deepCopy(type);
-        out.lifetime = lifetime;
-        let value = typeCache.get(getKey(out));
-        if (value !== undefined) {
-            return value as T;
-        }
+        out.region = region;
         return out;
     }
 
@@ -758,98 +752,57 @@ export namespace t {
         return setVolatile(type, false);
     }
 
-    export function none<T extends Object>(type: T): T {
-        return setLifetime(type, 'none');
-    }
-
-    export function fixed<T extends Object>(type: T): T {
-        return setLifetime(type, 'fixed');
-    }
-
-    export function movable<T extends Object>(type: T): T {
-        return setLifetime(type, 'movable');
-    }
-
-    export function free<T extends Object>(type: T): T {
-        return setLifetime(type, 'free');
-    }
-
     // non-primitive types
 
-    export interface Pointer extends BaseObject {
-        type: 'pointer';
+    export interface Pointer extends BaseObject<'pointer'> {
         to: Type;
     }
 
-    export function pointer(type: Type): Pointer {
-        let key = `(${getKey(type)})*`;
-        let value = typeCache.get(key);
-        if (value !== undefined) {
-            return value as Pointer;
-        }
-        let out: Pointer = {
+    export function pointer(type: Type, region: Region): Pointer {
+        return {
             type: 'pointer',
-            _key: key,
+            _key: `(${getKey(type)})*`,
             size: space0.size,
             align: space0.align,
             preferredAlign: space0.preferredAlign,
+            region,
             mut: false,
             volatile: false,
-            lifetime: 'fixed',
             to: type,
         };
-        typeCache.set(getKey(out), out);
-        return out;
     }
 
-    export interface Reference extends Base {
-        type: 'reference';
-        value: Type;
+    export interface Reference extends Base<'reference'> {
+        value: Object;
     }
 
     export function reference(type: Object): Reference {
-        let key = `(${getKey(type)})&`;
-        let value = typeCache.get(key);
-        if (value !== undefined) {
-            return value as Reference;
-        }
-        let out: Reference = {
+        return {
             type: 'reference',
-            _key: key,
+            _key: `(${getKey(type)})&`,
             value: type,
-        };
-        typeCache.set(getKey(out), out);
-        return out;
+        };;
     }
 
-    export interface Array extends BaseObject {
-        type: 'array';
-        lifetime: 'none';
+    export interface Array extends BaseObject<'array'> {
         items: Object;
         len: number;
     }
 
-    export function array(items: Object, len: number): Array {
-        let key = `(${getKey(items)})[${len}]`;
-        let value = typeCache.get(key);
-        if (value !== undefined) {
-            return value as Array;
-        }
+    export function array(items: Object, len: number, region: Region): Array {
         let itemSize = Math.ceil(items.size / items.align) * items.align;
-        let out: Array = {
+        return {
             type: 'array',
-            _key: key,
+            _key: `(${getKey(items)})[${len}]`,
             size: itemSize * len,
             align: items.align,
             preferredAlign: items.preferredAlign,
+            region,
             mut: false,
             volatile: false,
-            lifetime: 'none',
             items,
             len,
         };
-        typeCache.set(getKey(out), out);
-        return out;
     }
 
     export interface Parameter {
@@ -857,8 +810,7 @@ export namespace t {
         name?: string;
     }
 
-    export interface Function extends Base {
-        type: 'function';
+    export interface Function extends Base<'function'> {
         returnType: Object;
         params: Parameter[];
     }
@@ -871,29 +823,22 @@ export namespace t {
             }
             return out;
         })}).join(', ')})`;
-        let value = typeCache.get(key);
-        if (value !== undefined) {
-            return value as Function;
-        }
-        let out: Function = {
+        return {
             type: 'function',
             _key: key,
             returnType,
             params,
-        };
-        typeCache.set(getKey(out), out);
-        return out;
+        };;
     }
 
     export type StructMember = Omit<DeclInfo, 'name'> & {name?: string};
 
-    export interface Struct extends BaseObject {
-        type: 'struct';
+    export interface Struct extends BaseObject<'struct'> {
         members: StructMember[];
         hasHoles: boolean;
     }
 
-    export type ParamStructMember = Omit<StructMember, 'offset'>;
+    export type ParamStructMember = Omit<StructMember, 'offset' | 'region'>;
 
     export interface StructLayout {
         members: StructMember[];
@@ -901,7 +846,6 @@ export namespace t {
         align: number;
         preferredAlign: number;
         hasHoles: boolean;
-        lifetime: Lifetime;
     }
 
     function getPermutations<T>(array: T[]): T[][] {
@@ -925,14 +869,12 @@ export namespace t {
         let align = 0;
         let preferredAlign = 0;
         let hasHoles = false;
-        let lifetime: Lifetime = 'free';
         return {
             members: out,
             size,
             align,
             preferredAlign,
             hasHoles,
-            lifetime,
         };
     }
 
@@ -947,7 +889,7 @@ export namespace t {
         return out;
     }
 
-    export function struct(members: ParamStructMember[]): Struct {
+    export function struct(members: ParamStructMember[], region: Region): Struct {
         let layout = getStructLayout(members);
         let key = `struct {${layout.members.map(member => {
             let out = `(${getKey(member.type)})`;
@@ -956,34 +898,27 @@ export namespace t {
             }
             return out;
         }).join(', ')}}`;
-        let value = typeCache.get(key);
-        if (value !== undefined) {
-            return value as Struct;
-        }
-        let out: Struct = {
+        return {
             type: 'struct',
             _key: key,
             size: layout.size,
             align: layout.align,
             preferredAlign: layout.preferredAlign,
+            region,
             mut: false,
             volatile: false,
-            lifetime: layout.lifetime,
             members: layout.members,
             hasHoles: layout.hasHoles,
         };
-        typeCache.set(getKey(out), out);
-        return out;
     }
 
     export type UnionMember = {name: string, type: Object};
 
-    export interface Union extends BaseObject {
-        type: 'union';
+    export interface Union extends BaseObject<'union'> {
         members: UnionMember[];
     }
 
-    export function union(members: UnionMember[]): Union {
+    export function union(members: UnionMember[], region: Region): Union {
         members = members.sort((x, y) => {
             if (x.name < y.name) {
                 return -1;
@@ -994,10 +929,6 @@ export namespace t {
             }
         });
         let key = `union {${members.map(member => `(${getKey(member.type)}) ${member.name}`).join(', ')}}`;
-        let value = typeCache.get(key);
-        if (value !== undefined) {
-            return value as Union;
-        }
         let size = 0;
         let align = 1;
         let preferredAlign = 1;
@@ -1012,50 +943,40 @@ export namespace t {
             size,
             align,
             preferredAlign,
+            region,
             mut: false,
             volatile: false,
-            lifetime: 'free',
             members,
         };
     }
 
-    export interface Slice extends BaseObject {
-        type: 'slice';
+    export interface Slice extends BaseObject<'slice'> {
         items: Object;
     }
 
-    export const SLICE_LAYOUT = getStructLayout([{type: size}, {type: pointer(void_)}]);
-
-    export function slice(items: Object): Slice {
-        let key = `(${getKey(items)})[]`;
-        let value = typeCache.get(key);
-        if (value !== undefined) {
-            return value as Slice;
-        }
-        let out: Slice = {
+    export function slice(items: Object, region: Region): Slice {
+        let layout = getStructLayout([{type: size(region)}, {type: pointer(items, region)}]);
+        return {
             type: 'slice',
-            _key: key,
-            size: SLICE_LAYOUT.size,
-            align: SLICE_LAYOUT.align,
-            preferredAlign: SLICE_LAYOUT.preferredAlign,
+            _key: `(${getKey(items)})[]`,
+            size: layout.size,
+            align: layout.align,
+            preferredAlign: layout.preferredAlign,
             mut: false,
             volatile: false,
-            lifetime: 'fixed',
+            region,
             items,
         };
-        typeCache.set(getKey(out), out);
-        return out;
     }
 
-    export interface Sum extends BaseObject {
-        type: 'sum';
+    export interface Sum extends BaseObject<'sum'> {
         tagType: Uint;
         members: Object[];
         tagOffset: number;
         memberOffset: number;
     }
 
-    export function sum(members: Object[]): Sum {
+    export function sum(members: Object[], region: Region): Sum {
         let members2: Object[] = [];
         for (let member of members) {
             if (members2.some(x => getKey(x) === getKey(member))) {
@@ -1071,11 +992,7 @@ export namespace t {
             }
         });
         let key = members.map(member => getKey(member)).join(' | ');
-        let value = typeCache.get(key);
-        if (value !== undefined) {
-            return value as Sum;
-        }
-        let tagType = uint(Math.ceil(Math.log2(members.length)));
+        let tagType = uint(region, Math.ceil(Math.log2(members.length)));
         let unionSize = 0;
         let unionAlign = 1;
         let unionPreferredAlign = 1;
@@ -1090,36 +1007,33 @@ export namespace t {
             size: unionSize,
             align: unionAlign,
             preferredAlign: unionPreferredAlign,
+            region,
             mut: false,
             volatile: false,
-            lifetime: 'free',
             members: members.map((member, i) => ({name: '_' + i, type: member})),
         };
         let layout = getStructLayout([{type: tagType}, {type: unionType}]);
         let tagOffset = (layout.members.find(member => member.type === tagType) as StructMember).offset;
         let memberOffset = (layout.members.find(member => member.type === unionType) as StructMember).offset;
-        let out: Sum = {
+        return {
             type: 'sum',
             _key: key,
             size: layout.size,
             align: layout.align,
             preferredAlign: layout.preferredAlign,
+            region,
             mut: false,
             volatile: false,
-            lifetime: 'fixed',
             tagType,
             members,
             tagOffset,
             memberOffset,
         };
-        typeCache.set(getKey(out), out);
-        return out;
     }
 
     export type EnumMember = {name: string, value: ByteArray};
 
-    export interface Enum extends BaseObject {
-        type: 'enum';
+    export interface Enum extends BaseObject<'enum'> {
         backing: Type;
         members: EnumMember[];
     }
