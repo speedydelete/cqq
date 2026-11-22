@@ -495,36 +495,34 @@ export interface Value {
 };
 
 
+export class Region {
 
-export type Region = Region[];
+    regions: Region[];
 
-export function regionContains(region: Region, other: Region): boolean {
-    if (region === other) {
-        return true;
+    constructor() {
+        this.regions = [];
     }
-    for (let value of region) {
-        if (value === other || regionContains(value, other)) {
+
+    [Symbol.iterator](): ArrayIterator<Region> {
+        return this.regions[Symbol.iterator]();
+    }
+
+    containsRegion(other: Region): boolean {
+        if (this === other) {
             return true;
         }
+        for (let value of this.regions) {
+            if (value === other || value.containsRegion(other)) {
+                return true;
+            }
+        }
+        return false;
     }
-    return false;
+
 }
 
 
 export namespace t {
-
-    export type Region = Region[];
-
-    // export interface Region {
-    //     __placeholder__: bigint;
-    // }
-
-    export interface DeclInfo {
-        name: string;
-        type: Type;
-        value?: ByteArray;
-        region: Region;
-    }
 
     export interface Name {
         module?: string;
@@ -849,14 +847,19 @@ export namespace t {
         };;
     }
 
-    export type StructMember = Omit<DeclInfo, 'name'> & {name?: string};
+    export interface StructMember {
+        type: Object;
+        name?: string;
+        value?: ByteArray;
+        offset: number;
+    };
 
     export interface Struct extends BaseObject<'struct'> {
         members: StructMember[];
         hasHoles: boolean;
     }
 
-    export type ParamStructMember = Omit<StructMember, 'offset' | 'region'>;
+    export type ParamStructMember = Omit<StructMember, 'offset'>;
 
     export interface StructLayout {
         members: StructMember[];
@@ -884,9 +887,23 @@ export namespace t {
     function getStructLayoutNoReorder(members: ParamStructMember[]): StructLayout {
         let out: StructMember[] = [];
         let size = 0;
-        let align = 0;
-        let preferredAlign = 0;
+        let align = 1;
+        let preferredAlign = 1;
         let hasHoles = false;
+        for (let member of members) {
+            align = Math.max(align, member.type.align);
+            preferredAlign = Math.max(preferredAlign, member.type.preferredAlign);
+            if (size % member.type.align !== 0) {
+                size += (size - member.type.align);
+                hasHoles = true;
+            }
+            out.push({
+                type: member.type,
+                name: member.name,
+                value: member.value,
+                offset: size,
+            });
+        }
         return {
             members: out,
             size,
@@ -1062,10 +1079,6 @@ export namespace t {
     export type Type = Object | Never | Reference | Function;
 
     export namespace meta {
-
-        export const struct = t.setName(t.struct([
-            {},
-        ]), undefined, 'type.meta.struct');
 
     }
 
