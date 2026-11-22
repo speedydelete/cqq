@@ -495,21 +495,19 @@ export interface Value {
 };
 
 
-export class Region extends Array<Region> {
 
-    constructor() {
-        super();
+export type Region = Region[];
+
+export function regionContains(region: Region, other: Region): boolean {
+    if (region === other) {
+        return true;
     }
-
-    contains(other: Region): boolean {
-        for (let value of this) {
-            if (value === other || value.contains(other)) {
-                return true;
-            }
+    for (let value of region) {
+        if (value === other || regionContains(value, other)) {
+            return true;
         }
-        return false;
     }
-
+    return false;
 }
 
 
