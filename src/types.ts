@@ -322,10 +322,11 @@ export let littleEndian = dataLayout.endianness === 'little';
 export let bigEndian = dataLayout.endianness === 'big';
 
 
-export let byteArrays = new Set<WeakRef<ArrayBuffer>>();
-
 let encoder = new TextEncoder();
 let decoder = new TextDecoder();
+
+export let byteArrays = new Set<WeakRef<ArrayBuffer>>();
+export let alreadyDoneByteArrays = new WeakSet();
 
 export class ByteArray {
 
@@ -335,13 +336,19 @@ export class ByteArray {
     constructor(buffer: ArrayBuffer, offset?: number, length?: number);
     constructor(view: ArrayBufferView<ArrayBuffer>, offset?: number, length?: number);
     constructor(value: number | ArrayBuffer | ArrayBufferView<ArrayBuffer>, offset?: number, length?: number) {
+        let buffer: ArrayBuffer;
         if (typeof value === 'number') {
-            value = new ArrayBuffer(value);
-        } else if (!(value instanceof ArrayBuffer)) {
-            value = value.buffer as ArrayBuffer;
+            buffer = new ArrayBuffer(value);
+        } else if (value instanceof ArrayBuffer) {
+            buffer = value;
+        } else {
+            buffer = value.buffer;
         }
-        this.view = new DataView(value, offset, length);
-        byteArrays.add(new WeakRef(this.view.buffer));
+        this.view = new DataView(buffer, offset, length);
+        if (!alreadyDoneByteArrays.has(buffer)) {
+            byteArrays.add(new WeakRef(this.view.buffer));
+            alreadyDoneByteArrays.add(buffer);
+        }
     }
 
     get buffer(): ArrayBuffer {

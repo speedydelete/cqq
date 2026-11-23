@@ -8,17 +8,6 @@ import {dataLayout, ByteArray, Token} from './types.js';
 const IDENTIFIER_REGEX = /^\p{XID_Start}\p{XID_Continue}*$/u;
 
 const NUMBER_REGEX = /^(\.?[0-9](\p{XID_Continue}|'[0-9]|'[_a-zA-Z]|[eEpP][+-]|\.)*)$/u;
-const INTEGER_DECIMAL_LITERAL_REGEX = /^([0-9]('?[0-9])*)$/u;
-const INTEGER_BINARY_LITERAL_REGEX = /^(0'?[bB]'?[01]('?[01])*)$/u;
-const INTEGER_OCTAL_LITERAL_REGEX = /^(0'?[oO]'?('?[0-7]*))$/u;
-const INTEGER_HEXADECIMAL_LITERAL_REGEX = /^(0'?[xX]'?[0-9a-fA-F]('?[0-9a-fA-F])*)$/u;
-// digit-sequence: ([0-9]('?[0-9])*)
-// exponent-part: ([eE][+-]?([0-9]('?[0-9])*))
-const DECIMAL_FLOATING_LITERAL_REGEX = /^((([0-9]('?[0-9])*)?\.([0-9]('?[0-9])*)|([0-9]('?[0-9])*)\.)([eE][+-]?([0-9]('?[0-9])*))|([0-9]('?[0-9])*)([eE][+-]?([0-9]('?[0-9])*)))$/u;
-// hexadecimal-digit-sequence: ([0-9a-fA-F]('?[0-9a-fA-F])*)
-// hexadecimal-fractional-literal: ([0-9a-fA-F]('?[0-9a-fA-F])*)?\.([0-9a-fA-F]('?[0-9a-fA-F])*)|([0-9a-fA-F]('?[0-9a-fA-F])*)\.
-// binary-exponent-part: ([pP][+-]?([0-9]('?[0-9])*))
-const HEXADECIMAL_FLOATING_LITERAL_REGEX = /^(0[xX](([0-9a-fA-F]('?[0-9a-fA-F])*)|([0-9a-fA-F]('?[0-9a-fA-F])*)?\.([0-9a-fA-F]('?[0-9a-fA-F])*)|([0-9a-fA-F]('?[0-9a-fA-F])*)\.)([pP][+-]?([0-9]('?[0-9])*)))$/u;
 
 const CHARACTER_LITERAL_REGEX = /^('([^'\\]|((\\)(['"?\\abfnrtv0]|[0-7]{1,3}|o\{[0-7]{1,3}\}|x[0-9a-fA-F]+|x\{[0-9a-fA-F]+\})))+')$/u;
 
