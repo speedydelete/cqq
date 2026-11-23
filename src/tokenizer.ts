@@ -1,6 +1,8 @@
 
-import {Position, error, SYMBOLS, CYYSymbol, KEYWORDS, BasicKeyword, Keyword, Token} from './base.js';
-import {t} from './types.js';
+import {Decimal} from 'decimal.js';
+
+import {Position, error, SYMBOLS, CQQSymbol, KEYWORDS, BasicKeyword, Keyword} from './base.js';
+import {dataLayout, ByteArray, Token} from './types.js';
 
 
 const IDENTIFIER_REGEX = /^\p{XID_Start}\p{XID_Continue}*$/u;
@@ -60,7 +62,7 @@ function parseEscapeSequence(value: string): string {
 }
 
 let encoder = new TextEncoder();
-function parseStringLiteral(value: string): Uint8Array | false {
+function parseStringLiteral(value: string): ByteArray | false {
     if (!(value.startsWith('"') && value.endsWith('"'))) {
         return false;
     }
@@ -82,8 +84,10 @@ function parseStringLiteral(value: string): Uint8Array | false {
             out += char;
         }
     }
-    return encoder.encode(out);
+    return new ByteArray(encoder.encode(out));
 }
+
+let i8 = dataLayout.getIntegerType(8);
 
 function tryToConvertToSingleToken(pos: Position, text: string): Token | 'whitespace' | false {
     pos = structuredClone(pos);
@@ -100,21 +104,8 @@ function tryToConvertToSingleToken(pos: Position, text: string): Token | 'whites
             return {pos, type: 'identifier', name: text};
         }
     } else if (text.match(NUMBER_REGEX)) {
-        let base: number;
-        if (text.match(INTEGER_DECIMAL_LITERAL_REGEX) || text.match(INTEGER_BINARY_LITERAL_REGEX) || text.match(INTEGER_OCTAL_LITERAL_REGEX) || text.match(INTEGER_HEXADECIMAL_LITERAL_REGEX)) {
-            let value = BigInt(text.replaceAll(`'`, ''));
-            return {pos, type: 'number-literal', value, raw: text};
-        } else {
-            let value: number;
-            if (text.match(DECIMAL_FLOATING_LITERAL_REGEX)) {
-                value = Number(text.replaceAll(`'`, ''));
-            } else if (text.match(HEXADECIMAL_FLOATING_LITERAL_REGEX)) {
-                error(pos, `Hexadecimal floating point literals are not supported yet`);
-            } else {
-                error(pos, `Invalid number: '${text}'`);
-            }
-            return {pos, type: 'number-literal', value, raw: text};
-        }
+        let value = Decimal(text.replaceAll(`'`, ''));
+        return {pos, type: 'number-literal', value, raw: text};
     } else if (text.match(CHARACTER_LITERAL_REGEX)) {
         text = text.slice(1, -1);
         let value: number;
@@ -126,12 +117,12 @@ function tryToConvertToSingleToken(pos: Position, text: string): Token | 'whites
             }
             value = text.charCodeAt(0);
         }
-        if (value > (1n ** BigInt(t.CHAR.bits))) {
+        if (value > (1n ** BigInt(i8.bits))) {
             error(pos, `Invalid character literal: ${text} (resolves to ${value} which is out of range of char)`);
         }
-        return {pos, type: 'character-literal', value, raw: text};
-    } else if (SYMBOLS.has(text as CYYSymbol)) {
-        return {pos, type: 'symbol', value: text as CYYSymbol};
+        return {pos, type: 'number-literal', value: Decimal(value), raw: text};
+    } else if (SYMBOLS.has(text as CQQSymbol)) {
+        return {pos, type: 'symbol', value: text as CQQSymbol};
     } else {
         return false;
     }

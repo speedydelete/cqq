@@ -1,8 +1,9 @@
 
-import * as fs from 'node:fs/promises';
 import {execSync} from 'node:child_process';
 
-import {unexpectedError, DEEP_COPY_SYMBOL, deepCopy, getInternalPath, HasPos, error} from './base.js';
+import {Decimal} from 'decimal.js';
+
+import {unexpectedError, getInternalPath, DEEP_COPY_SYMBOL, deepCopy, Position, EOF, MemberOperator, ExpressionPrefixOperator, ExpressionPostfixOperator, ExpressionBinaryOperator, CQQSymbol, Keyword} from './base.js';
 
 
 export class BitTypeStorageData {
@@ -321,22 +322,26 @@ export let littleEndian = dataLayout.endianness === 'little';
 export let bigEndian = dataLayout.endianness === 'big';
 
 
+export let byteArrays = new Set<WeakRef<ArrayBuffer>>();
+
+let encoder = new TextEncoder();
+let decoder = new TextDecoder();
+
 export class ByteArray {
 
     view: DataView<ArrayBuffer>;
 
     constructor(length: number);
     constructor(buffer: ArrayBuffer, offset?: number, length?: number);
-    constructor(view: ArrayBufferView, offset?: number, length?: number);
-    constructor(value: number | ArrayBuffer | ArrayBufferView, offset?: number, length?: number) {
+    constructor(view: ArrayBufferView<ArrayBuffer>, offset?: number, length?: number);
+    constructor(value: number | ArrayBuffer | ArrayBufferView<ArrayBuffer>, offset?: number, length?: number) {
         if (typeof value === 'number') {
-            this.view = new DataView(new ArrayBuffer(value));
-            return;
-        }
-        if (!(value instanceof ArrayBuffer)) {
+            value = new ArrayBuffer(value);
+        } else if (!(value instanceof ArrayBuffer)) {
             value = value.buffer as ArrayBuffer;
         }
         this.view = new DataView(value, offset, length);
+        byteArrays.add(new WeakRef(this.view.buffer));
     }
 
     get buffer(): ArrayBuffer {
@@ -367,71 +372,15 @@ export class ByteArray {
         return (new Uint8Array(this.buffer))[Symbol.iterator]();
     }
 
-    getInt8(i: number): number {
-        return this.view.getInt8(i);
-    }
-
-    setInt8(i: number, value: number): void {
-        this.view.setInt8(i, value);
-    }
-
-    getInt16(i: number): number {
-        return this.view.getInt16(i, littleEndian);
-    }
-
-    setInt16(i: number, value: number): void {
-        this.view.setInt16(i, value, littleEndian);
-    }
-
-    getInt32(i: number): number {
-        return this.view.getInt32(i, littleEndian);
-    }
-
-    setInt32(i: number, value: number): void {
-        this.view.setInt32(i, value, littleEndian);
-    }
-
-    getInt64(i: number): bigint {
-        return this.view.getBigInt64(i, littleEndian);
-    }
-
-    setInt64(i: number, value: bigint): void {
-        this.view.setBigInt64(i, value, littleEndian);
-    }
-
-    getUint8(i: number): number {
+    getByte(i: number): number {
         return this.view.getUint8(i);
     }
 
-    setUint8(i: number, value: number): void {
+    setByte(i: number, value: number): void {
         this.view.setUint8(i, value);
     }
 
-    getUint16(i: number): number {
-        return this.view.getUint16(i, littleEndian);
-    }
-
-    setUint16(i: number, value: number): void {
-        this.view.setUint16(i, value, littleEndian);
-    }
-
-    getUint32(i: number): number {
-        return this.view.getUint32(i, littleEndian);
-    }
-
-    setUint32(i: number, value: number): void {
-        this.view.setUint32(i, value, littleEndian);
-    }
-
-    getUint64(i: number): bigint {
-        return this.view.getBigUint64(i, littleEndian);
-    }
-
-    setUint64(i: number, value: bigint): void {
-        this.view.setBigUint64(i, value, littleEndian);
-    }
-
-    getUint(bits: number, i: number): bigint {
+    getUint(i: number, bits: number): bigint {
         let out = 0n;
         let size = dataLayout.getIntegerType(bits).size;
         for (let j = 0; j < size; j++) {
@@ -445,7 +394,7 @@ export class ByteArray {
         return out;
     }
 
-    setUint(bits: number, i: number, value: bigint): void {
+    setUint(i: number, bits: number, value: bigint): void {
         let size = dataLayout.getIntegerType(bits).size;
         for (let j = 0; j < size; j++) {
             if (value === 0n) {
@@ -454,8 +403,35 @@ export class ByteArray {
             let index = littleEndian ? j : (size - 1 - j);
             let byte = value % 256n;
             value >>= 8n;
-            this.view.setUint8(index, Number(byte));
+            this.view.setUint8(i + index, Number(byte));
         }
+    }
+
+    static fromUint(bits: number, value: bigint): ByteArray {
+        let out = new ByteArray(dataLayout.getIntegerType(bits).size);
+        out.setUint(bits, 0, value);
+        return out;
+    }
+
+    getInt(i: number, bits: number): bigint {
+        let out = this.getUint(i, bits);
+        if (out > (1n << (BigInt(bits) - 1n))) {
+            out += 1n << BigInt(bits);
+        }
+        return out;
+    }
+
+    setInt(i: number, bits: number, value: bigint): void {
+        if (value < 0) {
+            value += 1n << BigInt(bits);
+        }
+        this.setUint(i, bits, value);
+    }
+
+    static fromInt(bits: number, value: bigint): ByteArray {
+        let out = new ByteArray(dataLayout.getIntegerType(bits).size);
+        out.setInt(bits, 0, value);
+        return out;
     }
 
     getFloat16(i: number): number {
@@ -464,6 +440,12 @@ export class ByteArray {
 
     setFloat16(i: number, value: number): void {
         this.view.setFloat16(i, value, littleEndian);
+    }
+    
+    static fromFloat16(value: number): ByteArray {
+        let out = new ByteArray(2);
+        out.setFloat16(0, value);
+        return out;
     }
 
     getFloat32(i: number): number {
@@ -474,12 +456,71 @@ export class ByteArray {
         this.view.setFloat32(i, value, littleEndian);
     }
 
+    static fromFloat32(value: number): ByteArray {
+        let out = new ByteArray(4);
+        out.setFloat32(0, value);
+        return out;
+    }
+
     getFloat64(i: number): number {
         return this.view.getFloat64(i, littleEndian);
     }
 
     setFloat64(i: number, value: number): void {
         this.view.setFloat64(i, value, littleEndian);
+    }
+
+    static fromFloat64(value: number): ByteArray {
+        let out = new ByteArray(8);
+        out.setFloat64(0, value);
+        return out;
+    }
+
+    slice(start: number = 0, end: number = -1): ByteArray {
+        if (start < 0) {
+            start += this.length;
+        }
+        if (end < 0) {
+            end += this.length;
+        }
+        return new ByteArray(this, start, end - start);
+    }
+
+    setSlice(i: number, value: ArrayBuffer | ArrayBufferView<ArrayBuffer>): void {
+        let view: DataView;
+        if (value instanceof ArrayBuffer) {
+            view = new DataView(value);
+        } else {
+            view = new DataView(value.buffer);
+        }
+        for (let j = 0; j < view.byteLength; j++) {
+            this.view.setUint8(i + j, view.getUint8(j));
+        }
+    }
+
+    getString(i: number, bytes: number): string {
+        return decoder.decode(new Uint8Array(this.buffer, i, bytes));
+    }
+
+    setString(i: number, value: string): void {
+        this.setSlice(i, encoder.encode(value));
+    }
+
+    static fromString(value: string): ByteArray {
+        return new ByteArray(encoder.encode(value));
+    }
+
+    // `Decimal` values strictly deal with
+    // UTF-8 encoded strings that take up the whole buffer
+    // so there is no setDecimal method
+    // or index for the getDecimal method
+
+    getDecimal(): Decimal {
+        return Decimal(this.getString(0, this.length));
+    }
+    
+    static fromDecimal(value: Decimal): ByteArray {
+        return ByteArray.fromString(value.toString());
     }
 
     join(sep: string): string {
@@ -489,30 +530,31 @@ export class ByteArray {
 }
 
 
-export interface Value {
-    type: Type;
-    value: ByteArray;
-};
-
-
 export class Region {
 
-    regions: Region[];
+    regions: Set<Region>;
 
-    constructor() {
-        this.regions = [];
+    constructor(parent?: Region) {
+        this.regions = new Set();
+        if (parent) {
+            parent.add(this);
+        }
     }
 
     [Symbol.iterator](): ArrayIterator<Region> {
         return this.regions[Symbol.iterator]();
     }
 
-    containsRegion(other: Region): boolean {
+    add(other: Region): void {
+        this.regions.add(other);
+    }
+
+    contains(other: Region): boolean {
         if (this === other) {
             return true;
         }
         for (let value of this.regions) {
-            if (value === other || value.containsRegion(other)) {
+            if (value === other || value.contains(other)) {
                 return true;
             }
         }
@@ -525,22 +567,21 @@ export class Region {
 export namespace t {
 
     export interface Name {
-        module?: string;
+        file: string;
         name: string;
     }
 
-    export interface Base<Type extends string> {
+    export interface BaseType<Type extends string> {
         type: Type;
         _key: string;
         name?: Name;
     }
 
-    export interface BaseObject<Type extends string> extends Base<Type> {
+    export interface BaseObject<Type extends string> extends BaseType<Type> {
         size: number;
         align: number;
         preferredAlign: number;
         mut: boolean;
-        region: Region;
         volatile: boolean;
         value?: ByteArray;
     }
@@ -548,18 +589,13 @@ export namespace t {
     export let typeProperties = new Map<string, Value>();
 
     export function getKey(type: Type): string {
-        if (type.type === 'never' || type.type === 'reference' || type.type === 'function') {
+        if (!isObject(type)) {
             return type._key;
         }
         let key = type._key;
         if (type.name !== undefined) {
             // this works because both the module and the name cannot have spaces
-            let nameKey = `#[named`;
-            if (module !== undefined) {
-                nameKey += ` ${type.name.module}`;
-            }
-            nameKey += ` ${type.name.name}]`;
-            key = `${nameKey} ${key};`
+            key = `#[named ${type.name.file} ${type.name.name}] ${key};`;
         }
         if (type.volatile) {
             key = `volatile ${key}`;
@@ -575,73 +611,58 @@ export namespace t {
 
     // primitive types
 
-    export type Never = Base<'never'>;
+    export interface Never extends BaseType<'never'> {
+        // empty
+    }
+
     export const never: Never = {
         type: 'never',
         _key: 'never',
     };
 
-    export type Void = BaseObject<'void'>;
-    export function void_(region: Region): Void {
-        return {
-            type: 'void',
-            _key: 'void',
-            size: 0,
-            align: 1,
-            preferredAlign: 1,
-            region,
-            mut: false,
-            volatile: false,
-        };
+    export interface Void extends BaseObject<'void'> {
+        // empty
     }
 
-    export type Bool = BaseObject<'bool'>;
-    let i1 = dataLayout.getIntegerType(1);
-    export function bool(region: Region): Bool {
-        return {
-            type: 'bool',
-            _key: 'bool',
-            size: i1.byteSize,
-            align: i1.byteAlign,
-            preferredAlign: i1.bytePreferredAlign,
-            region,
-            mut: false,
-            volatile: false,
-        };
+    export const void_: Void = {
+        type: 'void',
+        _key: 'void',
+        size: 0,
+        align: 1,
+        preferredAlign: 1,
+        mut: false,
+        volatile: false,
+    };
+
+    export interface Bool extends BaseObject<'bool'> {
+        // empty
     }
+
+    let i1 = dataLayout.getIntegerType(1);
+    export const bool: Bool = {
+        type: 'bool',
+        _key: 'bool',
+        size: i1.byteSize,
+        align: i1.byteAlign,
+        preferredAlign: i1.bytePreferredAlign,
+        mut: false,
+        volatile: false,
+    };
 
     export interface BaseInteger<Type extends string, Signed extends boolean> extends BaseObject<Type> {
         signed: Signed;
         bits: number;
     }
 
-    let i8 = dataLayout.getIntegerType(8);
-    export type Char = BaseInteger<'char', false>;
-    export function char(region: Region): Char {
-        return {
-            type: 'char',
-            _key: 'char',
-            size: i8.byteSize,
-            align: i8.byteAlign,
-            preferredAlign: i8.bytePreferredAlign,
-            region,
-            signed: false,
-            bits: i8.bits,
-            mut: false,
-            volatile: false,
-        }
-    }
-
     export type Int = BaseInteger<'int', true>;
-    export function int(region: Region, bits?: number): Int {
-        let data = dataLayout.getIntegerType(bits ?? cTypeBits['int']);
+    export function int(bits: number): Int {
+        let data = dataLayout.getIntegerType(bits);
         return {
             type: 'int',
             _key: `int<${bits}>`,
             size: data.byteSize,
             align: data.byteAlign,
             preferredAlign: data.bytePreferredAlign,
-            region,
             signed: true,
             bits: data.bits,
             mut: false,
@@ -650,15 +671,14 @@ export namespace t {
     }
 
     export type Uint = BaseInteger<'uint', false>;
-    export function uint(region: Region, bits?: number): Uint {
-        let data = dataLayout.getIntegerType(bits ?? cTypeBits['int']);
+    export function uint(bits: number): Uint {
+        let data = dataLayout.getIntegerType(bits);
         return {
             type: 'uint',
             _key: `uint<${bits}>`,
             size: data.byteSize,
             align: data.byteAlign,
             preferredAlign: data.bytePreferredAlign,
-            region,
             signed: false,
             bits: data.bits,
             mut: false,
@@ -666,19 +686,13 @@ export namespace t {
         };
     }
 
-    export function size(region: Region): Uint {
-        return uint(region, cTypeBits['size_t']);
-    }
+    export const char = t.int(8);
+    export const int_ = t.int(cTypeBits['int']);
+    export const uint_ = t.uint(cTypeBits['int']);
+    export const size = t.uint(cTypeBits['size_t']);
+    export const ssize = t.int(cTypeBits['ptrdiff_t']);
 
-    export function ssize(region: Region): Uint {
-        return uint(region, cTypeBits['ptrdiff_t']);
-    }
-
-    export function uintptr(region: Region): Uint {
-        return uint(region, cTypeBits['uintptr_t']);
-    }
-
-    export type Integer = Char | Int | Uint;
+    export type Integer = Int | Uint;
     export type SignedInteger = Extract<Integer, {signed: true}>;
     export type UnsignedInteger = Extract<Integer, {signed: false}>;
 
@@ -706,7 +720,7 @@ export namespace t {
         'float128': dataLayout.floatingTypes[128],
     };
 
-    export function float<T extends FloatingTypeName>(type: T, region: Region): BaseFloating<T> {
+    export function float<T extends FloatingTypeName>(type: T): BaseFloating<T> {
         let data = FLOAT_TYPE_DATA[type];
         return {
             type,
@@ -714,23 +728,40 @@ export namespace t {
             size: data.byteSize,
             align: data.byteAlign,
             preferredAlign: data.bytePreferredAlign,
-            region,
             mut: false,
             volatile: false,
             bits: data.bits,
         };
     }
 
+    export interface NumberLiteral extends BaseType<'number-literal'> {
+        // empty
+    }
+
+    export const numberLiteral: NumberLiteral = {
+        type: 'number-literal',
+        _key: '#[number_literal]',
+    }
+
+    export interface Auto extends BaseType<'auto'> {
+        // empty
+    }
+
+    export const auto: Auto = {
+        type: 'auto',
+        _key: 'auto',
+    };
+
     export type Number = Integer | Floating;
 
     export type PrimitiveObject = Void | Bool | Number;
-    export type Primitive = PrimitiveObject | Never;
+    export type Primitive = PrimitiveObject | Never | NumberLiteral | Auto;
 
     // derived object types
 
-    export function setName<T extends Object>(type: T, module: string | undefined, name: string): T {
+    export function setName<T extends Object>(type: T, file: string, name: string): T {
         let out = deepCopy(type);
-        out.name = {module, name};
+        out.name = {file, name};
         return out as T;
     }
 
@@ -743,12 +774,6 @@ export namespace t {
     export function setVolatile<T extends Object>(type: T, mut: boolean): T {
         let out = deepCopy(type);
         out.mut = mut;
-        return out;
-    }
-
-    export function setRegion<T extends Object>(type: T, region: Region): T {
-        let out = deepCopy(type);
-        out.region = region;
         return out;
     }
 
@@ -774,29 +799,28 @@ export namespace t {
         to: Type;
     }
 
-    export function pointer(type: Type, region: Region): Pointer {
+    export function pointer(type: Type): Pointer {
         return {
             type: 'pointer',
             _key: `(${getKey(type)})*`,
             size: space0.size,
             align: space0.align,
             preferredAlign: space0.preferredAlign,
-            region,
             mut: false,
             volatile: false,
             to: type,
         };
     }
 
-    export interface Reference extends Base<'reference'> {
-        value: Object;
+    export interface Reference extends BaseType<'reference'> {
+        to: Object;
     }
 
     export function reference(type: Object): Reference {
         return {
             type: 'reference',
             _key: `(${getKey(type)})&`,
-            value: type,
+            to: type,
         };;
     }
 
@@ -805,7 +829,7 @@ export namespace t {
         len: number;
     }
 
-    export function array(items: Object, len: number, region: Region): Array {
+    export function array(items: Object, len: number): Array {
         let itemSize = Math.ceil(items.size / items.align) * items.align;
         return {
             type: 'array',
@@ -813,7 +837,6 @@ export namespace t {
             size: itemSize * len,
             align: items.align,
             preferredAlign: items.preferredAlign,
-            region,
             mut: false,
             volatile: false,
             items,
@@ -826,7 +849,7 @@ export namespace t {
         name?: string;
     }
 
-    export interface Function extends Base<'function'> {
+    export interface Function extends BaseType<'function'> {
         returnType: Object;
         params: Parameter[];
     }
@@ -855,8 +878,8 @@ export namespace t {
     };
 
     export interface Struct extends BaseObject<'struct'> {
+        inheritsFrom: StructMember[];
         members: StructMember[];
-        hasHoles: boolean;
     }
 
     export type ParamStructMember = Omit<StructMember, 'offset'>;
@@ -866,7 +889,6 @@ export namespace t {
         size: number;
         align: number;
         preferredAlign: number;
-        hasHoles: boolean;
     }
 
     function getPermutations<T>(array: T[]): T[][] {
@@ -889,13 +911,11 @@ export namespace t {
         let size = 0;
         let align = 1;
         let preferredAlign = 1;
-        let hasHoles = false;
         for (let member of members) {
             align = Math.max(align, member.type.align);
             preferredAlign = Math.max(preferredAlign, member.type.preferredAlign);
             if (size % member.type.align !== 0) {
                 size += (size - member.type.align);
-                hasHoles = true;
             }
             out.push({
                 type: member.type,
@@ -909,7 +929,6 @@ export namespace t {
             size,
             align,
             preferredAlign,
-            hasHoles,
         };
     }
 
@@ -924,10 +943,11 @@ export namespace t {
         return out;
     }
 
-    export function struct(members: ParamStructMember[], region: Region): Struct {
+    export function struct(inheritsFrom: Object[], members: ParamStructMember[]): Struct {
+        members = members.concat(inheritsFrom.map((type, i) => ({type, name: `#[extends ${i}]`})));
         let layout = getStructLayout(members);
         let key = `struct {${layout.members.map(member => {
-            let out = `(${getKey(member.type)})`;
+            let out = `#[offset ${member.offset}] (${getKey(member.type)})`;
             if (member.name !== undefined) {
                 out += ` ${member.name}`;
             }
@@ -939,21 +959,65 @@ export namespace t {
             size: layout.size,
             align: layout.align,
             preferredAlign: layout.preferredAlign,
-            region,
             mut: false,
             volatile: false,
-            members: layout.members,
-            hasHoles: layout.hasHoles,
+            inheritsFrom: layout.members.filter(member => member.name && member.name.startsWith('#[extends ')),
+            members: layout.members.filter(member => !(member.name && member.name.startsWith('#[extends '))),
         };
     }
 
-    export type UnionMember = {name: string, type: Object};
+    export function structHasHoles(type: Struct): boolean {
+        let members = type.inheritsFrom.concat(type.members);
+        members.sort((x, y) => x.offset - y.offset)
+        let expected = 0;
+        for (let member of members) {
+            if (member.offset !== expected) {
+                return true;
+            }
+            expected += member.type.size;
+        }
+        return false;
+    }
+
+    export function createStruct(...data: (Object | [Object] | [string, Object] | [string, Object, ByteArray])[]): Struct {
+        let inheritsFrom: Object[] = [];
+        let members: ParamStructMember[] = [];
+        for (let member of data) {
+            if (!Array.isArray(member)) {
+                inheritsFrom.push(member);
+            } else {
+                let type: Object;
+                let name: string | undefined;
+                let value: ByteArray | undefined;
+                if (member.length === 1) {
+                    type = member[0];
+                    name = undefined;
+                    value = undefined;
+                } else if (member.length === 2) {
+                    type = member[1];
+                    name = member[0];
+                    value = undefined;
+                } else {
+                    type = member[1];
+                    name = member[0];
+                    value = member[2];
+                }
+                members.push({type, name, value});
+            }
+        }
+        return struct(inheritsFrom, members);
+    }
+
+    export interface UnionMember {
+        name: string;
+        type: Object;
+    }
 
     export interface Union extends BaseObject<'union'> {
         members: UnionMember[];
     }
 
-    export function union(members: UnionMember[], region: Region): Union {
+    export function union(members: UnionMember[]): Union {
         members = members.sort((x, y) => {
             if (x.name < y.name) {
                 return -1;
@@ -978,7 +1042,6 @@ export namespace t {
             size,
             align,
             preferredAlign,
-            region,
             mut: false,
             volatile: false,
             members,
@@ -987,10 +1050,14 @@ export namespace t {
 
     export interface Slice extends BaseObject<'slice'> {
         items: Object;
+        lenOffset: number;
+        ptrOffset: number;
     }
 
-    export function slice(items: Object, region: Region): Slice {
-        let layout = getStructLayout([{type: size(region)}, {type: pointer(items, region)}]);
+    export function slice(items: Object): Slice {
+        let layout = getStructLayout([{type: size, name: 'len'}, {type: pointer(items), name: 'ptr'}]);
+        let lenOffset = (layout.members.find(x => x.name === 'len') as StructMember).offset;
+        let ptrOffset = (layout.members.find(x => x.name === 'ptr') as StructMember).offset;
         return {
             type: 'slice',
             _key: `(${getKey(items)})[]`,
@@ -999,10 +1066,13 @@ export namespace t {
             preferredAlign: layout.preferredAlign,
             mut: false,
             volatile: false,
-            region,
+            lenOffset,
+            ptrOffset,
             items,
         };
     }
+
+    export const string = t.slice(t.char);
 
     export interface Sum extends BaseObject<'sum'> {
         tagType: Uint;
@@ -1011,7 +1081,7 @@ export namespace t {
         memberOffset: number;
     }
 
-    export function sum(members: Object[], region: Region): Sum {
+    export function sum(members: Object[]): Sum {
         let members2: Object[] = [];
         for (let member of members) {
             if (members2.some(x => getKey(x) === getKey(member))) {
@@ -1027,7 +1097,7 @@ export namespace t {
             }
         });
         let key = members.map(member => getKey(member)).join(' | ');
-        let tagType = uint(region, Math.ceil(Math.log2(members.length)));
+        let tagType = uint(Math.ceil(Math.log2(members.length)));
         let unionSize = 0;
         let unionAlign = 1;
         let unionPreferredAlign = 1;
@@ -1042,7 +1112,6 @@ export namespace t {
             size: unionSize,
             align: unionAlign,
             preferredAlign: unionPreferredAlign,
-            region,
             mut: false,
             volatile: false,
             members: members.map((member, i) => ({name: '_' + i, type: member})),
@@ -1056,7 +1125,6 @@ export namespace t {
             size: layout.size,
             align: layout.align,
             preferredAlign: layout.preferredAlign,
-            region,
             mut: false,
             volatile: false,
             tagType,
@@ -1066,22 +1134,412 @@ export namespace t {
         };
     }
 
-    export type EnumMember = {name: string, value: ByteArray};
+    export function optional(type: Object): Sum {
+        return sum([type, void_]);
+    }
+
+    export interface EnumMember {
+        name: string;
+        value: ByteArray;
+    }
 
     export interface Enum extends BaseObject<'enum'> {
-        backing: Type;
+        of: Type;
         members: EnumMember[];
     }
 
-    export type Object = PrimitiveObject | Pointer | Array | Struct | Union | Slice | Sum | Enum;
+    export type DerivedObject = Pointer | Array | Struct | Union | Slice | Sum | Enum;
+    export type Derived = DerivedObject | Reference | Function;
+
+    export type Object = PrimitiveObject | DerivedObject;
     export type NonVoidObject = Exclude<Object, Void>;
 
-    export type Type = Object | Never | Reference | Function;
+    export type Type = Primitive | Derived;
+
+    export function isObject(type: Type): type is Object {
+        return !(type.type === 'never' || type.type === 'number-literal' || type.type === 'auto' || type.type === 'reference' || type.type === 'function');
+    }
+
+    export function isEqual(x: Type, y: Type): boolean {
+        return getKey(x) === getKey(y);
+    }
 
     export namespace meta {
+
+        export const never = t.createStruct();
+
+        export const value = t.slice(t.uint(8));
+
+        export const base_object = t.createStruct(
+            ['size', t.size],
+            ['align', t.size],
+            ['preferred_align', t.size],
+            ['mut', t.bool],
+            ['volatile', t.bool],
+            ['value', t.optional(meta.value)],
+        );
+
+        export const void_ = t.createStruct(
+            base_object,
+        );
+
+        export const bool = t.createStruct(
+            base_object,
+        );
+
+        export const integer = t.createStruct(
+            base_object,
+            ['signed', t.bool],
+            ['bits', t.size],
+        );
+
+        export const float = t.createStruct(
+            base_object,
+            ['bits', t.size],
+        );
+
+        export const number = t.sum([integer, float]);
+
+        export const primitive_object = t.sum([void_, bool, integer, float]);
+        export const primitive = t.sum([never, void_, bool, integer, float]);
+
+        export const pointer = t.createStruct(
+            base_object,
+            ['to', meta.type],
+        );
+
+        export const reference = t.createStruct(
+            base_object,
+            ['to', meta.object],
+        );
+
+        export const array = t.createStruct(
+            base_object,
+            ['items', meta.object],
+            ['len', t.size],
+        );
+
+        export const parameter = t.createStruct(
+            ['type', meta.object],
+            ['name', t.optional(t.string)],
+        );
+
+        export const function_ = t.createStruct(
+            base_object,
+            ['return_type', meta.object],
+            ['params', t.slice(parameter)],
+        );
+
+        export const struct_member = t.createStruct(
+            ['type', meta.object],
+            ['name', t.optional(t.string)],
+            ['value', t.optional(meta.value)],
+            ['offset', t.size],
+        );
+
+        export const struct = t.createStruct(
+            base_object,
+            ['inherits_from', t.slice(struct_member)],
+            ['members', t.slice(struct_member)],
+        );
+
+        export const union_member = t.createStruct(
+            ['name', t.string],
+            ['type', meta.object],
+        );
+
+        export const union = t.createStruct(
+            base_object,
+            ['members', t.slice(union_member)],
+        );
+
+        export const slice = t.createStruct(
+            base_object,
+            ['items', meta.object],
+            ['len_offset', t.size],
+            ['ptr_offset', t.size],
+        );
+
+        export const sum = t.createStruct(
+            base_object,
+        );
+
+        export const enum_member = t.createStruct(
+            ['name', t.string],
+            ['value', meta.value],
+        );
+
+        export const enum_ = t.createStruct(
+            base_object,
+            ['of', meta.type],
+            ['members', t.slice(enum_member)],
+        );
+
+        export const derived_object = t.sum([pointer, array, struct, union, slice, sum, enum_]);
+        export const derived = t.sum([pointer, reference, array, function_, struct, union, slice, sum, enum_]);
+
+        export const object = t.sum([void_, bool, integer, float, pointer, array, struct, union, slice, sum, enum_]);
+        export const type = t.sum([never, void_, bool, integer, float, pointer, reference, array, function_, struct, union, slice, sum, enum_]);
+
+        export function get(type: Type): Type {
+            if (type.type === 'never') {
+                return meta.never;
+            } else if (type.type === 'void' || type.type === 'bool') {
+                return meta.base_object;
+            } else if (type.type === 'int' || type.type === 'uint') {
+                return meta.integer;
+            } else if (type.type === 'bfloat16' || type.type === 'float16' || type.type === 'float32' || type.type === 'float64' || type.type === 'float80' || type.type === 'float128') {
+                return meta.float;
+            } else if (type.type === 'pointer') {
+                return meta.pointer;
+            } else if (type.type === 'reference') {
+                return meta.reference;
+            } else if (type.type === 'array') {
+                return meta.array;
+            } else if (type.type === 'function') {
+                return meta.function_;
+            } else if (type.type === 'struct') {
+                return meta.struct;
+            } else if (type.type === 'union') {
+                return meta.union;
+            } else if (type.type === 'sum') {
+                return meta.sum;
+            } else if (type.type === 'slice') {
+                return meta.slice;
+            } else if (type.type === 'enum') {
+                return meta.enum_;
+            } else {
+                unexpectedError(`Type ${type.type} is not representable in code and should not be present`);
+            }
+        }
 
     }
 
 }
 
 export type Type = t.Type;
+
+export interface Value {
+    type: Type;
+    value: ByteArray;
+}
+
+
+export interface BaseToken<Type extends string> {
+    type: Type;
+    pos: Position;
+}
+
+export interface SymbolToken<T extends CQQSymbol = CQQSymbol> extends BaseToken<'symbol'> {
+    value: T;
+}
+
+export interface IdentifierToken extends BaseToken<'identifier'> {
+    name: string;
+}
+
+export interface KeywordToken<T extends Keyword = Keyword> extends BaseToken<'keyword'> {
+    value: T;
+}
+
+export interface NumberLiteralToken extends BaseToken<'number-literal'> {
+    value: Decimal;
+    raw: string;
+}
+
+export interface StringLiteralToken extends BaseToken<'string-literal'> {
+    value: ByteArray;
+    raw: string;
+}
+
+export type Token = SymbolToken | IdentifierToken | KeywordToken | NumberLiteralToken | StringLiteralToken;
+
+export const STRING_TOKEN_NAMES: {[K in Token['type']]: string} = {
+    'symbol': 'symbol',
+    'identifier': 'identifier',
+    'keyword': 'keyword',
+    'number-literal': 'number-literal',
+    'string-literal': 'string literal',
+};
+
+export function getTokenRaw(token: Token): string {
+    if (token.type === 'identifier') {
+        return token.name;
+    } else if (token.type === 'number-literal' || token.type === 'string-literal') {
+        return token.raw;
+    } else {
+        return token.value;
+    }
+}
+
+export function tokenToString(token: Token | EOF): string {
+    if (token === EOF) {
+        return `end of file`;
+    } else {
+        return `${STRING_TOKEN_NAMES[token.type]} ${getTokenRaw(token)}`;
+    }
+}
+
+
+export interface VariableData {
+    name: string;
+    type: Type;
+    region: Region;
+    const?: boolean;
+    value?: ByteArray;
+}
+
+export class Scope {
+
+    parent: Scope | undefined;
+    variables: Map<string, VariableData>;
+    functions: Map<string, VariableData[]>;
+    region: Region;
+
+    constructor(parent?: Scope) {
+        this.parent = parent;
+        this.variables = new Map();
+        this.functions = new Map();
+        if (parent) {
+            this.region = new Region(parent.region);
+        } else {
+            this.region = new Region();
+        }
+    }
+
+    get(name: string): VariableData | undefined {
+        let value = this.variables.get(name);
+        if (value) {
+            return value;
+        } else if (this.parent) {
+            return this.parent.get(name);
+        } else {
+            return undefined;
+        }
+    }
+
+    set(name: string, value: VariableData): void {
+        this.variables.set(name, value);
+    }
+
+    getFunction(name: string): VariableData[] | undefined {
+        return this.functions.get(name);
+    }
+
+    addFunction(name: string, value: VariableData): void {
+        let old = this.functions.get(name);
+        if (old !== undefined) {
+            old.push(value);
+        } else {
+            this.functions.set(name, [value]);
+        }
+    }
+
+}
+
+
+export namespace a {
+
+    export interface BaseNode<Type extends string> {
+        pos: Position;
+        type: Type;
+    }
+
+    export interface Identifier extends BaseNode<'identifier'> {
+        name: string;
+    }
+
+    export interface BaseExpression<Type extends string> extends BaseNode<`${Type}-expression`> {
+        exprType: t.Type;
+    }
+
+    export interface IdentifierExpression extends BaseExpression<'identifier'> {
+        name: string;
+    }
+
+    export interface NumberLiteralExpression extends BaseExpression<'number-literal'> {
+        value: Decimal;
+    }
+
+    export interface StringLiteralExpression extends BaseExpression<'string-literal'> {
+        value: ByteArray;
+    }
+
+    export interface KeywordLiteralExpression extends BaseExpression<'keyword-literal'> {
+        value: ByteArray;
+    }
+
+    export interface CompoundLiteralElement extends BaseNode<'compound-literal-element'> {
+        key: string | number | undefined;
+        value: Value;
+    }
+
+    export interface CompoundLiteralExpression extends BaseExpression<'compound-literal'> {
+        data: CompoundLiteralElement[];
+    }
+
+    export interface PrefixExpression extends BaseExpression<'prefix'> {
+        op: ExpressionPrefixOperator;
+        value: Expression;
+    }
+
+    export interface PostfixExpression extends BaseExpression<'postfix'> {
+        op: ExpressionPostfixOperator;
+        value: Expression;
+    }
+
+    export interface BinaryExpression extends BaseExpression<'binary'> {
+        op: ExpressionBinaryOperator;
+        value: Expression;
+    }
+
+    export interface MemberExpression extends BaseExpression<'member'> {
+        op: MemberOperator;
+        value: Expression;
+        member: Identifier;
+    }
+
+    export interface IndexExpression extends BaseExpression<'index'> {
+        object: Expression;
+        indices: Expression[];
+    }
+
+    export interface CallExpression extends BaseExpression<'call'> {
+        func: Expression;
+        args: Expression[];
+    }
+
+    export interface ConditionalExpression extends BaseExpression<'conditional'> {
+        test: Expression;
+        ifTrue: Expression;
+        ifFalse: Expression;
+    }
+
+    export interface StatementExpression extends BaseExpression<'statement'> {
+        data: BlockStatement;
+    }
+
+    export type Expression = IdentifierExpression | NumberLiteralExpression | StringLiteralExpression | KeywordLiteralExpression | CompoundLiteralExpression | PrefixExpression | PostfixExpression | BinaryExpression | MemberExpression | IndexExpression | CallExpression | ConditionalExpression | StatementExpression;
+
+    export type ExpressionNode = Expression | CompoundLiteralElement;
+
+    export interface BaseStatement<Type extends string> extends BaseNode<`${Type}-statement`> {
+        // empty
+    }
+
+    export interface ExpressionStatement extends BaseStatement<'expression'> {
+        value: Expression;
+    }
+
+    export interface BlockStatement extends BaseStatement<'block'> {
+        scope: Scope;
+        data: Statement[];
+    }
+
+    export type Statement = ExpressionStatement;
+
+    export type StatementNode = Statement;
+
+    export type Node = Expression | Statement;
+
+}

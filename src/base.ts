@@ -87,10 +87,10 @@ export interface Position extends SimplePosition {
 export type HasPos = {pos: Position};
 
 
-export class CYYError extends Error {
+export class CQQError extends Error {
 
-    name: string = 'CYYError';
-    [Symbol.toStringTag]: string = 'CYYError';
+    name: string = 'CQQError';
+    [Symbol.toStringTag]: string = 'CQQError';
 
     pos: Position;
 
@@ -116,7 +116,7 @@ export function error(pos: Position | HasPos, message: string): never {
     if ('pos' in pos) {
         pos = pos.pos;
     }
-    throw new CYYError(pos, message);
+    throw new CQQError(pos, message);
 }
 
 
@@ -124,7 +124,7 @@ export const EOF = Symbol();
 export type EOF = typeof EOF;
 
 
-export const PREFIX_UNARY_OPERATORS = new Set([
+export const PREFIX_OPERATORS = new Set([
     // numbers
     '+', '-', '~',
     // pointers
@@ -132,19 +132,22 @@ export const PREFIX_UNARY_OPERATORS = new Set([
     // booleans
     '!',
     // types
-    'mut', 'volatile', 'own', 'free',
+    'mut', 'volatile',
     // general
     'decltype', 'typeof',
 ] as const);
-export type PrefixUnaryOperator = typeof PREFIX_UNARY_OPERATORS extends Set<infer T> ? T : never;
+export type PrefixOperator = typeof PREFIX_OPERATORS extends Set<infer T> ? T : never;
+export type ExpressionPrefixOperator = PrefixOperator;
 
-export const POSTFIX_UNARY_OPERATORS = new Set([
+export const POSTFIX_OPERATORS = new Set([
     // members
     '.', '->', '::',
     // types
-    'mut', 'volatile', 'own', 'free', '*', '&', '?',
+    'mut', 'volatile', '*', '&', '?',
 ] as const);
-export type PostfixUnaryOperator = typeof POSTFIX_UNARY_OPERATORS extends Set<infer T> ? T : never;
+export type PostfixOperator = typeof POSTFIX_OPERATORS extends Set<infer T> ? T : never;
+export type MemberOperator = '.' | '->' | '::';
+export type ExpressionPostfixOperator = Exclude<PostfixOperator, MemberOperator>;
 
 export const BINARY_OPERATORS = new Set([
     // numbers
@@ -157,40 +160,13 @@ export const BINARY_OPERATORS = new Set([
     'extends',
     // general
     '==', '!=', '~=', '~!=', '??',
+    // assignment
+    '=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>=',
 ] as const);
 export type BinaryOperator = typeof BINARY_OPERATORS extends Set<infer T> ? T : never;
 
-export const OVERLOAD_OPERATORS = new Set([
-    // prefix unary
-        // numbers
-        '+', '-', '~',
-        // pointers
-        '*.', '&.',
-        // booleans
-        '!',
-        // types
-        'mut.', 'volatile.',
-    // postfix unary
-        // types
-        '.mut', '.volatile', '.*', '.&', '.?',
-    // binary
-        // numbers
-        '+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>',
-        // scalars
-        '<', '<=', '>', '>=', '..<', '..=',
-        // booleans
-        '&&', '||', '^^',
-        // types
-        'extends',
-        // general
-        '==', '!=', '~=', '~!=', '??',
-    // other
-        // postfix
-        '[]', '()',
-        // ternary conditional
-        '?:',
-]);
-export type OverloadOperator = typeof OVERLOAD_OPERATORS extends Set<infer T> ? T : never;
+export type AssignmentOperator = '=' | '+=' | '-=' | '*=' | '/=' | '%=' | '&=' | '|=' | '^=' | '<<=' | '>>=';
+export type ExpressionBinaryOperator = Exclude<BinaryOperator, AssignmentOperator>;
 
 
 export const SYMBOLS = new Set([
@@ -220,7 +196,8 @@ export const SYMBOLS = new Set([
         // general
         '==', '!=', '~=', '~!=', '??',
 ] as const);
-export type CYYSymbol = typeof SYMBOLS extends Set<infer T> ? T : never;
+
+export type CQQSymbol = typeof SYMBOLS extends Set<infer T> ? T : never;
 
 export const KEYWORDS = new Set([
     // modules
@@ -228,245 +205,94 @@ export const KEYWORDS = new Set([
     // control flow
     'if', 'else', 'for', 'while', 'break', 'continue', 'match',
     // primitive types
-    'never', 'void', 'bool', 'int', 'uint', 'float16', 'bfloat16', 'float32', 'float64', 'float80', 'float128', 'size', 'ssize', 'uintptr', 'char', 'string', 'type', 'any', 'code',
+    'never', 'void', 'bool', 'int', 'uint', 'float16', 'bfloat16', 'float32', 'float64', 'float80', 'float128', 'size', 'ssize', 'char', 'string', 'type', 'any', 'code',
     // operators
     'mut', 'volatile', 'decltype', 'typeof', 'extends',
     // constructs
     'this', 'auto', 'struct', 'union', 'enum', 'class', 'operator', 'template', 'namespace',
     // declaration qualifiers
-    'constexpr', 'inline', 'alignas',
+    'const', 'inline', 'alignas',
 ] as const);
+
 export type BasicKeyword = typeof KEYWORDS extends Set<infer T> ? T : never;
 export type Keyword = BasicKeyword | `int${number}` | `uint${number}`;
 
 
-export type BaseToken = {pos: Position};
-export type SymbolToken<T extends CYYSymbol = CYYSymbol> = BaseToken & {type: 'symbol', value: T};
-export type IdentifierToken = BaseToken & {type: 'identifier', name: string};
-export type KeywordToken<T extends Keyword = Keyword> = BaseToken & {type: 'keyword', value: T};
-export type NumberToken = BaseToken & {type: 'number-literal', value: number | bigint, raw: string};
-export type CharacterLiteralToken = BaseToken & {type: 'character-literal', value: number, raw: string};
-export type StringLiteralToken = BaseToken & {type: 'string-literal', value: Uint8Array, raw: string};
+export const BINARY_OPERATOR_PRECEDENCE: {[K in ExpressionBinaryOperator]: [number, 'left' | 'right']} = {
 
-export type Token = SymbolToken | IdentifierToken | KeywordToken | NumberToken | CharacterLiteralToken | StringLiteralToken;
+    'extends': [13, 'left'],
 
-export const STRING_TOKEN_NAMES: {[K in Token['type']]: string} = {
-    'symbol': 'symbol',
-    'identifier': 'identifier',
-    'keyword': 'keyword',
-    'number-literal': 'number-literal',
-    'character-literal': 'character literal',
-    'string-literal': 'string literal',
+    '..<': [12, 'left'],
+    '..=': [12, 'left'],
+
+    '*': [11, 'left'],
+    '/': [11, 'left'],
+    '%': [11, 'left'],
+
+    '+': [10, 'left'],
+    '-': [10, 'left'],
+
+    '<<': [9, 'left'],
+    '>>': [9, 'left'],
+
+    '<': [8, 'left'],
+    '<=': [8, 'left'],
+    '>': [8, 'left'],
+    '>=': [8, 'left'],
+
+    '==': [7, 'left'],
+    '!=': [7, 'left'],
+    '~=': [7, 'left'],
+    '~!=': [7, 'left'],
+
+    '&': [6, 'left'],
+
+    '^': [5, 'left'],
+
+    '|': [4, 'left'],
+
+    '&&': [3, 'left'],
+
+    '^^': [2, 'left'],
+
+    '||': [1, 'left'],
+
+    '??': [0, 'left'],
+
 };
 
-export function getTokenRaw(token: Token): string {
-    if (token.type === 'identifier') {
-        return token.name;
-    } else if (token.type === 'number-literal' || token.type === 'character-literal' || token.type === 'string-literal') {
-        return token.raw;
-    } else {
-        return token.value;
-    }
-}
 
-export function tokenToString(token: Token | EOF): string {
-    if (token === EOF) {
-        return `end of file`;
-    } else {
-        return `${STRING_TOKEN_NAMES[token.type]} ${getTokenRaw(token)}`;
-    }
-}
+export const OVERLOAD_OPERATORS = new Set([
+    // prefix unary
+        // numbers
+        'prefix +', 'prefix -', 'prefix ~',
+        // pointers
+        'prefix *', 'prefix &',
+        // booleans
+        'prefix !',
+        // types
+        'prefix mut', 'prefix volatile',
+    // postfix unary
+        // types
+        'postfix mut', 'postfix volatile', 'postfix *', 'postfix &', 'postfix ?',
+    // binary
+        // numbers
+        'binary +', 'binary -', 'binary *', 'binary /', 'binary %', 'binary &', 'binary |', 'binary ^', 'binary <<', 'binary >>',
+        // scalars
+        'binary <', 'binary <=', 'binary >', 'binary >=', 'binary ..<', 'binary ..=',
+        // booleans
+        'binary &&', 'binary ||', 'binary ^^',
+        // types
+        'binary extends',
+        // general
+        'binary ==', 'binary !=', 'binary ~=', 'binary ~!=', 'binary ??',
+        // assignment
+        'binary =', 'binary +=', 'binary -=', 'binary *=', 'binary /=', 'binary %=', 'binary &=', 'binary |=', 'binary ^=', 'binary <<=', 'binary >>=',
+    // other
+        // postfix
+        'binary []', 'binary ()',
+        // ternary conditional
+        'binary ?:',
+] as const);
 
-
-type Matcher = 
-    | EOF
-    | Token['type']
-    | BasicKeyword | 'intn' | 'uintn' | 'floatn'
-    | CYYSymbol
-    | `identifier ${string}`
-    | Matcher[]
-;
-
-type MatcherReturnType<T extends Matcher> =
-    T extends EOF ? EOF :
-    T extends Token['type'] ? Extract<Token, {type: T}> :
-    T extends BasicKeyword ? KeywordToken<T> :
-    T extends 'intn' | 'uintn' ? (T extends `${infer T extends 'int' | 'uint'}n` ? KeywordToken<`${T}${number}`> : never) :
-    T extends CYYSymbol ? SymbolToken<T> :
-    T extends `identifier ${string}` ? IdentifierToken :
-    // T extends (infer U)[] ? MatcherReturnType<U> :
-    T extends any[] ? Token :
-    never
-;
-
-function matcherToString(matcher: Matcher): string {
-    if (matcher === EOF) {
-        return `end of file`;
-    } else if (typeof matcher === 'string') {
-        if (KEYWORDS.has(matcher as BasicKeyword)) {
-            return `keyword '${matcher}'`;
-        } else if (SYMBOLS.has(matcher as CYYSymbol)) {
-            return `symbol '${matcher}'`;
-        } else if (matcher.startsWith('identifier ')) {
-            return `identifier '${matcher.slice('identifier '.length)}'`;
-        } else {
-            return STRING_TOKEN_NAMES[matcher as Token['type']];
-        }
-    } else {
-        let out = matcher.map(matcherToString);
-        if (out.length === 0) {
-            return `nothing`;
-        } else if (out.length === 1) {
-            return out[0];
-        } else if (out.length === 2) {
-            return `${out[0]} or ${out[1]}`;
-        } else {
-            return `${out.slice(0, -1).join(', ')}, or ${out[out.length - 1]}`;
-        }
-    }
-}
-
-
-export class BaseParser {
-
-    tokens: Token[];
-    pos: number;
-
-    constructor(tokens: Token[]) {
-        this.tokens = tokens;
-        this.pos = 0;
-    }
-
-    canHaveHeaderTokens: boolean = false;
-
-    getCurrentPosition(): Position {
-        if (this.tokens[this.pos] === undefined) {
-            return this.tokens[this.tokens.length - 1].pos;
-        } else {
-            return this.tokens[this.pos].pos;
-        }
-    }
-
-    error(pos: Position | {pos: Position} | undefined, message: string): never {
-        if (pos === undefined) {
-            pos = this.getCurrentPosition();
-        } else if ('pos' in pos) {
-            pos = pos.pos;
-        }
-        throw new CYYError(pos, message);
-    }
-
-    peek<T extends Exclude<Matcher, EOF> = Exclude<Matcher, EOF>>(): MatcherReturnType<T> {
-        let out = this.tokens[this.pos];
-        if (out === undefined) {
-            throw new Error(`Unexpected end of input`);
-        } else {
-            return out as MatcherReturnType<T>;
-        }
-    }
-
-    peekOrEOF<T extends Matcher = Matcher>(): MatcherReturnType<T> | EOF {
-        return (this.tokens[this.pos] ?? EOF) as MatcherReturnType<T> | EOF;
-    }
-
-    advance<T extends Exclude<Matcher, EOF> = Exclude<Matcher, EOF>>(): MatcherReturnType<T> {
-        let out = this.tokens[this.pos];
-        if (out === undefined) {
-            throw new Error(`Unexpected end of input`);
-        } else {
-            this.pos++;
-            return out as MatcherReturnType<T>;
-        }
-    }
-
-    advanceOrEOF<T extends Matcher = Matcher>(): MatcherReturnType<T> | EOF {
-        let out = this.tokens[this.pos];
-        if (out === undefined) {
-            return EOF;
-        } else {
-            this.pos++;
-            return out as MatcherReturnType<T>;
-        }
-    }
-
-    _match(token: Token | EOF, matcher: Matcher): boolean {
-        if (matcher === EOF) {
-            return token === EOF;
-        } else if (token === EOF) {
-            return false;
-        } else if (typeof matcher === 'string') {
-            if (SYMBOLS.has(matcher as CYYSymbol)) {
-                return token.type === 'symbol' && token.value === matcher;
-            } else if (KEYWORDS.has(matcher as BasicKeyword)) {
-                return token.type === 'keyword' && token.value === matcher;
-            } else if (matcher === 'intn' || matcher === 'uintn' || matcher === 'floatn') {
-                return token.type === 'keyword' && Boolean(token.value.match(new RegExp(`^${matcher.slice(1, -1)}\\d+$`)));
-            } else if (matcher.startsWith('identifier ')) {
-                return token.type === 'identifier' && token.name === matcher.slice('identifier '.length);
-            } else {
-                return token.type === matcher;
-            }
-        } else {
-            return matcher.some(value => this._match(token, value));
-        }
-    }
-
-    match(...data: Matcher[]): boolean {
-        for (let i = 0; i < data.length; i++) {
-            let token = (this.tokens[this.pos + i] ?? EOF) as Token | EOF;
-            if (!this._match(token, data[i])) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    expect(...data: Matcher[]): void {
-        for (let i = 0; i < data.length; i++) {
-            let token = (this.tokens[this.pos + i] ?? EOF) as Token | EOF;
-            this._expect(token, data[i]);
-        }
-    }
-
-    isAtEnd(): boolean {
-        return this.pos >= this.tokens.length;
-    }
-
-    try<T, U extends any[]>(func: (this: this, ...args: U) => T, ...args: U): T | undefined {
-        try {
-            return func.apply(this, args);
-        } catch (error) {
-            if (error instanceof CYYError) {
-                return undefined;
-            } else {
-                throw error;
-            }
-        }
-    }
-
-    tryVoid<T extends any[]>(func: (this: this, ...args: T) => void, ...args: T): boolean {
-        try {
-            func.apply(this, args);
-            return true;
-        } catch (error) {
-            if (error instanceof CYYError) {
-                return false;
-            } else {
-                throw error;
-            }
-        }
-    }
-
-    _expect(token: Token | EOF, matcher: Matcher): void {
-        if (this._match(token, matcher)) {
-            return;
-        }
-        throw new Error(`Expected ${matcherToString(matcher)}, got ${tokenToString(token)}`);
-    }
-
-    eat<T extends Exclude<Matcher, EOF>>(matcher: T): MatcherReturnType<T> {
-        this.expect(matcher);
-        return this.advance<T>();
-    }
-
-}
+export type OverloadOperator = typeof OVERLOAD_OPERATORS extends Set<infer T> ? T : never;
