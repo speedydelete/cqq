@@ -4,11 +4,6 @@ import './globals.d.ts';
 import * as path from 'node:path';
 
 
-export function unexpectedError(message: string): never {
-    throw new Error(`This error should not occur, please report it: ${message}`);
-}
-
-
 export const BASE_INTERNAL_PATH = path.normalize(import.meta.dirname);
 
 export function getInternalPath(...parts: string[]): string {
@@ -137,17 +132,12 @@ export const PREFIX_OPERATORS = new Set([
     'decltype', 'typeof',
 ] as const);
 export type PrefixOperator = typeof PREFIX_OPERATORS extends Set<infer T> ? T : never;
-export type ExpressionPrefixOperator = PrefixOperator;
 
 export const POSTFIX_OPERATORS = new Set([
-    // members
-    '.', '->', '::',
     // types
-    'mut', 'volatile', '*', '&', '?',
+    'mut', 'volatile', '*', '&'
 ] as const);
 export type PostfixOperator = typeof POSTFIX_OPERATORS extends Set<infer T> ? T : never;
-export type MemberOperator = '.' | '->' | '::';
-export type ExpressionPostfixOperator = Exclude<PostfixOperator, MemberOperator>;
 
 export const BINARY_OPERATORS = new Set([
     // numbers
@@ -162,11 +152,10 @@ export const BINARY_OPERATORS = new Set([
     '==', '!=', '~=', '~!=', '??',
     // assignment
     '=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>=',
+    // member access
+    '.', '->', '::',
 ] as const);
 export type BinaryOperator = typeof BINARY_OPERATORS extends Set<infer T> ? T : never;
-
-export type AssignmentOperator = '=' | '+=' | '-=' | '*=' | '/=' | '%=' | '&=' | '|=' | '^=' | '<<=' | '>>=';
-export type ExpressionBinaryOperator = Exclude<BinaryOperator, AssignmentOperator>;
 
 
 export const SYMBOLS = new Set([
@@ -182,8 +171,6 @@ export const SYMBOLS = new Set([
         // booleans
         '!',
     // postfix unary operators
-        // members
-        '.', '->', '::',
         // types
         '*', '&',
     // binary operators
@@ -195,71 +182,35 @@ export const SYMBOLS = new Set([
         '&&', '||', '^^',
         // general
         '==', '!=', '~=', '~!=', '??',
+        // assignment
+        '=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>=',
+        // member access
+        '.', '->', '::',
+    // other
+        // ternary conditional operator
+        '?', ':',
 ] as const);
 
 export type CQQSymbol = typeof SYMBOLS extends Set<infer T> ? T : never;
 
 export const KEYWORDS = new Set([
-    // modules
-    'module', 'import', 'export',
-    // control flow
-    'if', 'else', 'for', 'while', 'break', 'continue', 'match',
-    // primitive types
-    'never', 'void', 'bool', 'int', 'uint', 'float16', 'bfloat16', 'float32', 'float64', 'float80', 'float128', 'size', 'ssize', 'char', 'string', 'type', 'any', 'code',
+    // literals
+    'true', 'false', 'null',
+    'never', 'void', 'bool', 'int', 'uint', 'float16', 'float32', 'float64', 'size', 'ssize', 'char', 'string', 'type', 'any', 'code',
     // operators
     'mut', 'volatile', 'decltype', 'typeof', 'extends',
-    // constructs
-    'this', 'auto', 'struct', 'union', 'enum', 'class', 'operator', 'template', 'namespace',
+    // declarations
+    'struct', 'union', 'enum', 'class', 'namespace', 'template', 'operator',
     // declaration qualifiers
     'const', 'inline', 'alignas',
+    // control flow
+    'if', 'else', 'for', 'while', 'break', 'continue', 'match',
+    // modules
+    'module', 'import', 'export',
 ] as const);
 
 export type BasicKeyword = typeof KEYWORDS extends Set<infer T> ? T : never;
 export type Keyword = BasicKeyword | `int${number}` | `uint${number}`;
-
-
-export const BINARY_OPERATOR_PRECEDENCE: {[K in ExpressionBinaryOperator]: [number, 'left' | 'right']} = {
-
-    'extends': [13, 'left'],
-
-    '..<': [12, 'left'],
-    '..=': [12, 'left'],
-
-    '*': [11, 'left'],
-    '/': [11, 'left'],
-    '%': [11, 'left'],
-
-    '+': [10, 'left'],
-    '-': [10, 'left'],
-
-    '<<': [9, 'left'],
-    '>>': [9, 'left'],
-
-    '<': [8, 'left'],
-    '<=': [8, 'left'],
-    '>': [8, 'left'],
-    '>=': [8, 'left'],
-
-    '==': [7, 'left'],
-    '!=': [7, 'left'],
-    '~=': [7, 'left'],
-    '~!=': [7, 'left'],
-
-    '&': [6, 'left'],
-
-    '^': [5, 'left'],
-
-    '|': [4, 'left'],
-
-    '&&': [3, 'left'],
-
-    '^^': [2, 'left'],
-
-    '||': [1, 'left'],
-
-    '??': [0, 'left'],
-
-};
 
 
 export const OVERLOAD_OPERATORS = new Set([
@@ -290,9 +241,9 @@ export const OVERLOAD_OPERATORS = new Set([
         'binary =', 'binary +=', 'binary -=', 'binary *=', 'binary /=', 'binary %=', 'binary &=', 'binary |=', 'binary ^=', 'binary <<=', 'binary >>=',
     // other
         // postfix
-        'binary []', 'binary ()',
+        'mixfix []', 'mixfix ()',
         // ternary conditional
-        'binary ?:',
+        'mixfix ?:',
 ] as const);
 
 export type OverloadOperator = typeof OVERLOAD_OPERATORS extends Set<infer T> ? T : never;

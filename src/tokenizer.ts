@@ -2,7 +2,8 @@
 import {Decimal} from 'decimal.js';
 
 import {Position, error, SYMBOLS, CQQSymbol, KEYWORDS, BasicKeyword, Keyword} from './base.js';
-import {dataLayout, ByteArray, Token} from './types.js';
+import {dataLayout, ByteArray} from './memory.js';
+import {Token} from './types.js';
 
 
 const IDENTIFIER_REGEX = /^\p{XID_Start}\p{XID_Continue}*$/u;
@@ -73,7 +74,7 @@ function parseStringLiteral(value: string): ByteArray | false {
             out += char;
         }
     }
-    return new ByteArray(encoder.encode(out));
+    return ByteArray.fromString(out);
 }
 
 let i8 = dataLayout.getIntegerType(8);

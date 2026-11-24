@@ -1,12 +1,13 @@
 
-import {Position, HasPos, CQQError, EOF, ExpressionBinaryOperator, OverloadOperator, SYMBOLS, CQQSymbol, KEYWORDS, BasicKeyword} from './base.js';
-import {Region, t, Type, Value, SymbolToken, IdentifierToken, KeywordToken, Token, STRING_TOKEN_NAMES, tokenToString, Scope, a} from './types.js';
+import {Position, HasPos, CQQError, EOF, PrefixOperator, PostfixOperator, BinaryOperator, SYMBOLS, CQQSymbol, KEYWORDS, BasicKeyword} from './base.js';
+import {Region} from './memory.js';
+import {t, Type, Value, SymbolToken, IdentifierToken, KeywordToken, Token, STRING_TOKEN_NAMES, tokenToString, Scope, a} from './types.js';
 
 
 type Matcher = 
     | EOF
     | Token['type']
-    | BasicKeyword | 'intn' | 'uintn' | 'floatn'
+    | BasicKeyword | 'intn' | 'uintn'
     | CQQSymbol
     | `identifier ${string}`
     | Matcher[]
@@ -23,6 +24,10 @@ type MatcherReturnType<T extends Matcher> =
     T extends any[] ? Token :
     never
 ;
+
+type PrefixOperatorToken = MatcherReturnType<PrefixOperator>;
+type PostfixOperatorToken = MatcherReturnType<PostfixOperator>;
+type BinaryOperatorToken = MatcherReturnType<BinaryOperator>;
 
 function matcherToString(matcher: Matcher): string {
     if (matcher === EOF) {
@@ -124,7 +129,7 @@ export class BaseParser {
                 return token.type === 'symbol' && token.value === matcher;
             } else if (KEYWORDS.has(matcher as BasicKeyword)) {
                 return token.type === 'keyword' && token.value === matcher;
-            } else if (matcher === 'intn' || matcher === 'uintn' || matcher === 'floatn') {
+            } else if (matcher === 'intn' || matcher === 'uintn') {
                 return token.type === 'keyword' && Boolean(token.value.match(new RegExp(`^${matcher.slice(1, -1)}\\d+$`)));
             } else if (matcher.startsWith('identifier ')) {
                 return token.type === 'identifier' && token.name === matcher.slice('identifier '.length);
@@ -208,66 +213,55 @@ export class Parser extends BaseParser {
         this.globalRegion = globalRegion;
     }
 
-    identifierExpression(): a.IdentifierExpression {
+    identifier(): a.Identifier {
         let token = this.eat('identifier');
-        let variable = this.scope.get(token.name);
-        if (variable === undefined) {
-            this.error(token, `Variable '${token.name}' is not defined`);
-        }
         return {
             pos: token.pos,
-            type: 'identifier-expression',
-            exprType: variable.type,
+            type: 'identifier',
             name: token.name,
-        };
+        }
     }
 
-    numberLiteralExpression(): a.NumberLiteralExpression {
-        let token = this.eat('number-literal');
-        return {
-            pos: token.pos,
-            type: 'number-literal-expression',
-            exprType: t.numberLiteral,
-            value: token.value,
-        };
-    }
+    readonly KEYWORD_LITERALS: string[] = [
+        // copied from base.ts
+        'true', 'false', 'null',
+        'never', 'void', 'bool', 'int', 'uint', 'float16', 'float32', 'float64', 'size', 'ssize', 'char', 'string', 'type', 'any', 'code',
+    ];
 
-    stringLiteralExpression(): a.StringLiteralExpression {
-        let token = this.eat('string-literal');
-        return {
-            pos: token.pos,
-            type: 'string-literal-expression',
-            exprType: t.slice(t.char),
-            value: token.value,
-        };
-    }
-
-    readonly KEYWORD_LITERAL_VALUES: {[key: string]: Value} = {
-        'never': {type: t.meta.never, value: 'todo: fill in'},
-    };
-
-    primaryExpression(expected: Type): a.Expression {
+    primaryExpression(): a.Expression {
         if (this.match('identifier')) {
-            return this.identifierExpression();
+            return this.identifier();
         } else if (this.match('number-literal')) {
-            return this.numberLiteralExpression();
+            let token = this.advance<'number-literal'>();
+            return {
+                pos: token.pos,
+                type: 'number-literal',
+                value: token.value,
+            };
         } else if (this.match('string-literal')) {
-            return this.stringLiteralExpression();
+            let token = this.advance<'string-literal'>();
+            return {
+                pos: token.pos,
+                type: 'string-literal',
+                value: token.value,
+            };
         } else if (this.match('(')) {
-            this.advance();
-            let out = this.expression(expected);
+            let token = this.advance();
+            let out = this.expression();
             this.eat(')');
-            return out;
+            return {
+                pos: token.pos,
+                type: 'parenthesized-expression',
+                value: out,
+            };
         } else if (this.match('keyword')) {
             let token = this.peek<'keyword'>();
-            if (token.value in this.KEYWORD_LITERAL_VALUES) {
+            if (token.value in this.KEYWORD_LITERALS) {
                 this.advance();
-                let value = this.KEYWORD_LITERAL_VALUES[token.value];
                 return {
                     pos: token.pos,
-                    type: 'keyword-literal-expression',
-                    exprType: value.type,
-                    value: value.value,
+                    type: 'keyword-literal',
+                    value: token.value,
                 }
             } else {
                 this.error(undefined, `Invalid primary expression`);
@@ -277,26 +271,372 @@ export class Parser extends BaseParser {
         }
     }
 
-    getOperator(pos: HasPos, op: OverloadOperator, args: a.Expression[]): Type {
+    mutVolatilePrefixExpression(): a.Expression {
+        let ops: PrefixOperatorToken[] = [];
+        while (this.match(['mut', 'volatile'])) {
+            ops.unshift(this.advance<PrefixOperator>());
+        }
+        let out = this.primaryExpression();
+        for (let token of ops) {
+            out = {
+                pos: token.pos,
+                type: 'prefix-expression',
+                op: token.value,
+                value: out,
+            };
+        }
+        return out;
     }
 
-    _startOperatorExpression(): a.Expression {
-        if (this.match('+')) {
-            
+    postfixCallIndexMemberExpression(): a.Expression {
+        let out = this.mutVolatilePrefixExpression();
+        while (true) {
+            if (this.match(['*', '&'])) {
+                // normal postfix operator
+                let op = this.advance<PostfixOperator>();
+                out = {
+                    pos: op.pos,
+                    type: 'postfix-expression',
+                    op: op.value,
+                    value: out,
+                };
+            } else if (this.match('[')) {
+                // index expression
+                let op = this.advance();
+                let indices: a.Expression[] = [];
+                while (true) {
+                    if (this.match(']')) {
+                        break;
+                    }
+                    indices.push(this.expression());
+                    if (this.match(',')) {
+                        this.advance();
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                this.eat(']');
+                out = {
+                    pos: op.pos,
+                    type: 'index-expression',
+                    value: out,
+                    indices,
+                };
+            } else if (this.match('(')) {
+                // function call
+                let op = this.advance();
+                let args: a.Argument[] = [];
+                while (true) {
+                    if (this.match(')')) {
+                        break;
+                    }
+                    if (this.match('identifier', '=')) {
+                        let name = this.identifier();
+                        let token = this.advance();
+                        let value = this.expression();
+                        args.push({
+                            pos: token.pos,
+                            type: 'keyword-argument',
+                            name,
+                            value,
+                        });
+                    } else {
+                        let value = this.expression();
+                        args.push({
+                            pos: value.pos,
+                            type: 'expression-argument',
+                            value,
+                        })
+                    }
+                    if (this.match(',')) {
+                        this.advance();
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                this.eat(']');
+                out = {
+                    pos: op.pos,
+                    type: 'call-expression',
+                    func: out,
+                    args,
+                };
+            } else if (this.match(['.', '->', '::'])) {
+                let op = this.advance<BinaryOperator>();
+                let right = this.mutVolatilePrefixExpression();
+                out = {
+                    pos: op.pos,
+                    type: 'binary-expression',
+                    op: op.value,
+                    left: out,
+                    right,
+                }
+            } else {
+                break;
+            }
+        }
+        return out;
+    }
+
+    nonMutVolatilePrefixExpression(): a.Expression {
+        let ops: PrefixOperatorToken[] = [];
+        while (this.match(['+', '-', '~', '*', '&', '!', 'decltype', 'typeof'])) {
+            ops.unshift(this.advance<PrefixOperator>());
+        }
+        let out = this.primaryExpression();
+        for (let token of ops) {
+            out = {
+                pos: token.pos,
+                type: 'prefix-expression',
+                op: token.value,
+                value: out,
+            };
+        }
+        return out;
+    }
+
+    extendsBinaryExpression(): a.Expression {
+        let left = this.nonMutVolatilePrefixExpression();
+        while (this.match('extends')) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.nonMutVolatilePrefixExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    rangeBinaryExpression(): a.Expression {
+        let left = this.extendsBinaryExpression();
+        while (this.match(['..<', '..='])) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.extendsBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    mulDivModBinaryExpression(): a.Expression {
+        let left = this.rangeBinaryExpression();
+        while (this.match(['*', '/', '%'])) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.rangeBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    addSubBinaryExpression(): a.Expression {
+        let left = this.mulDivModBinaryExpression();
+        while (this.match(['+', '-'])) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.mulDivModBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    shiftBinaryExpression(): a.Expression {
+        let left = this.addSubBinaryExpression();
+        while (this.match(['<<', '>>'])) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.addSubBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    relationalBinaryExpression(): a.Expression {
+        let left = this.shiftBinaryExpression();
+        while (this.match(['<', '<=', '>', '>='])) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.shiftBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    equalityBinaryExpression(): a.Expression {
+        let left = this.relationalBinaryExpression();
+        while (this.match(['==', '!=', '~=', '~!='])) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.relationalBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    bitwiseANDBinaryExpression(): a.Expression {
+        let left = this.equalityBinaryExpression();
+        while (this.match('&')) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.equalityBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    bitwiseXORBinaryExpression(): a.Expression {
+        let left = this.bitwiseANDBinaryExpression();
+        while (this.match('^')) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.bitwiseANDBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    bitwiseORBinaryExpression(): a.Expression {
+        let left = this.bitwiseXORBinaryExpression();
+        while (this.match('|')) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.bitwiseXORBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    logicalANDBinaryExpression(): a.Expression {
+        let left = this.bitwiseORBinaryExpression();
+        while (this.match('&&')) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.bitwiseORBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    logicalXORBinaryExpression(): a.Expression {
+        let left = this.logicalANDBinaryExpression();
+        while (this.match('^^')) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.logicalANDBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    logicalORBinaryExpression(): a.Expression {
+        let left = this.logicalXORBinaryExpression();
+        while (this.match('||')) {
+            let op = this.advance<BinaryOperator>();
+            let right = this.logicalXORBinaryExpression();
+            left = {
+                pos: op.pos,
+                type: 'binary-expression',
+                op: op.value,
+                left,
+                right,
+            };
+        }
+        return left;
+    }
+
+    conditionalExpression(): a.Expression {
+        let condition = this.logicalORBinaryExpression();
+        if (!this.match('?')) {
+            return condition;
+        }
+        let op = this.advance();
+        let ifTrue = this.expression();
+        this.eat(':');
+        let ifFalse = this.expression();
+        return {
+            pos: op.pos,
+            type: 'conditional-expression',
+            condition,
+            ifTrue,
+            ifFalse,
         }
     }
 
-    _operatorExpression(left: a.Expression, minPrecedence: number): a.Expression {
-
-    }
-
-    operatorExpression(): a.Expression {
-        let start = this._startOperatorExpression();
-        return this._operatorExpression(start, 0);
-    }
-
-    expression(expected: Type): a.Expression {
-
+    expression(): a.Expression {
+        let left = this.conditionalExpression();
+        if (!this.match(['=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>='])) {
+            return left;
+        }
+        let op = this.advance<BinaryOperator>();
+        let right = this.expression();
+        return {
+            pos: op.pos,
+            type: 'binary-expression',
+            op: op.value,
+            left,
+            right,
+        };
     }
 
 }
