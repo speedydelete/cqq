@@ -26,8 +26,6 @@ type MatcherReturnType<T extends Matcher> =
 ;
 
 type PrefixOperatorToken = MatcherReturnType<PrefixOperator>;
-type PostfixOperatorToken = MatcherReturnType<PostfixOperator>;
-type BinaryOperatorToken = MatcherReturnType<BinaryOperator>;
 
 function matcherToString(matcher: Matcher): string {
     if (matcher === EOF) {
