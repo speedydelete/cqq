@@ -135,7 +135,7 @@ export type PrefixOperator = typeof PREFIX_OPERATORS extends Set<infer T> ? T : 
 
 export const POSTFIX_OPERATORS = new Set([
     // types
-    'mut', 'volatile', '*', '&'
+    'mut', 'volatile', '*', '&',
 ] as const);
 export type PostfixOperator = typeof POSTFIX_OPERATORS extends Set<infer T> ? T : never;
 
@@ -168,6 +168,10 @@ export const SYMBOLS = new Set([
         '*', '&',
         // booleans
         '!',
+        // types
+        'mut', 'volatile',
+        // general
+        'decltype', 'typeof',
     // postfix unary operators
         // types
         '*', '&',
@@ -211,35 +215,37 @@ export type BasicKeyword = typeof KEYWORDS extends Set<infer T> ? T : never;
 export type Keyword = BasicKeyword | `int${number}` | `uint${number}`;
 
 
-export const OVERLOAD_OPERATORS = new Set([
+export const OPERATORS = new Set([
     // prefix unary
         // numbers
-        'prefix +', 'prefix -', 'prefix ~',
+        '+', '-', '~',
         // pointers
-        'prefix *', 'prefix &',
+        '*', '&',
         // booleans
-        'prefix !',
+        '!',
         // types
-        'prefix mut', 'prefix volatile',
+        'mut', 'volatile',
+        // general
+        'decltype', 'typeof',
     // postfix unary
         // types
-        'postfix mut', 'postfix volatile', 'postfix *', 'postfix &', 'postfix ?',
+        'mut', 'volatile', '*', '&',
     // binary
         // numbers
-        'binary +', 'binary -', 'binary *', 'binary /', 'binary %', 'binary &', 'binary |', 'binary ^', 'binary <<', 'binary >>',
+        '+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>',
         // scalars
-        'binary <', 'binary <=', 'binary >', 'binary >=', 'binary ..<', 'binary ..=',
+        '<', '<=', '>', '>=', '..<', '..=',
         // booleans
-        'binary &&', 'binary ||', 'binary ^^',
+        '&&', '||', '^^',
         // general
-        'binary ==', 'binary !=', 'binary ~=', 'binary ~!=', 'binary ??',
+        '==', '!=', '~=', '~!=', '??',
         // assignment
-        'binary =', 'binary +=', 'binary -=', 'binary *=', 'binary /=', 'binary %=', 'binary &=', 'binary |=', 'binary ^=', 'binary <<=', 'binary >>=',
+        '=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>=',
     // other
         // postfix
-        'mixfix []', 'mixfix ()',
+        '[]', '()',
         // ternary conditional
-        'mixfix ?:',
+        '?:',
 ] as const);
 
-export type OverloadOperator = typeof OVERLOAD_OPERATORS extends Set<infer T> ? T : never;
+export type Operator = typeof OPERATORS extends Set<infer T> ? T : never;

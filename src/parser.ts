@@ -1,6 +1,6 @@
 
-import {Position, HasPos, CQQError, EOF, PrefixOperator, PostfixOperator, BinaryOperator, SYMBOLS, CQQSymbol, KEYWORDS, BasicKeyword} from './base.js';
-import {Region} from './memory.js';
+import {Position, CQQError, EOF, PrefixOperator, PostfixOperator, BinaryOperator, SYMBOLS, CQQSymbol, KEYWORDS, BasicKeyword} from './base.js';
+import {ByteArray, Region} from './memory.js';
 import {t, Type, Value, SymbolToken, IdentifierToken, KeywordToken, Token, STRING_TOKEN_NAMES, tokenToString, Scope, a} from './types.js';
 
 
@@ -213,55 +213,70 @@ export class Parser extends BaseParser {
         this.globalRegion = globalRegion;
     }
 
-    identifier(): a.Identifier {
-        let token = this.eat('identifier');
-        return {
-            pos: token.pos,
-            type: 'identifier',
-            name: token.name,
-        }
+    implicitCast<T extends a.Expression>(expr: T, type: Type): T {
+        // todo: implicit casting logic
     }
 
-    readonly KEYWORD_LITERALS: string[] = [
-        // copied from base.ts
-        'true', 'false', 'null',
-        'never', 'void', 'bool', 'int', 'uint', 'float16', 'float32', 'float64', 'size', 'ssize', 'char', 'string', 'type', 'any', 'code',
-    ];
+    identifierExpression(): a.IdentifierExpression {
+        let token = this.eat('identifier');
+        let variable = this.scope.get(token.name);
+        if (variable === undefined) {
+            this.error(token, `Variable '${token.name}' is not defined`);
+        }
+        return {
+            pos: token.pos,
+            type: 'identifier-expression',
+            exprType: variable.type,
+            name: token.name,
+        };
+    }
+
+    numberLiteralExpression(): a.ValueExpression {
+        let token = this.eat('number-literal');
+        return {
+            pos: token.pos,
+            type: 'value-expression',
+            exprType: t.comptimeNumber,
+            value: ByteArray.fromDecimal(token.value),
+        };
+    }
+
+    stringLiteralExpression(): a.ValueExpression {
+        let token = this.eat('string-literal');
+        return {
+            pos: token.pos,
+            type: 'value-expression',
+            exprType: t.slice(t.char),
+            value: token.value,
+        };
+    }
+
+    readonly KEYWORD_LITERAL_VALUES: {[key: string]: Value} = {
+        'never': {type: t.meta.never, value: 'todo: fill in'},
+    };
 
     primaryExpression(): a.Expression {
         if (this.match('identifier')) {
-            return this.identifier();
+            return this.identifierExpression();
         } else if (this.match('number-literal')) {
-            let token = this.advance<'number-literal'>();
-            return {
-                pos: token.pos,
-                type: 'number-literal',
-                value: token.value,
-            };
+            return this.numberLiteralExpression();
         } else if (this.match('string-literal')) {
-            let token = this.advance<'string-literal'>();
-            return {
-                pos: token.pos,
-                type: 'string-literal',
-                value: token.value,
-            };
+            return this.stringLiteralExpression();
         } else if (this.match('(')) {
-            let token = this.advance();
+            this.advance();
             let out = this.expression();
             this.eat(')');
-            return {
-                pos: token.pos,
-                type: 'parenthesized-expression',
-                value: out,
-            };
+            return out;
         } else if (this.match('keyword')) {
             let token = this.peek<'keyword'>();
-            if (token.value in this.KEYWORD_LITERALS) {
+            if (token.value in this.KEYWORD_LITERAL_VALUES) {
                 this.advance();
+                let value = this.KEYWORD_LITERAL_VALUES[token.value];
                 return {
                     pos: token.pos,
-                    type: 'keyword-literal',
-                    value: token.value,
+                    type: 'value-expression',
+                    exprType: value.type,
+                    value: value.value,
                 }
             } else {
                 this.error(undefined, `Invalid primary expression`);
@@ -608,12 +623,12 @@ export class Parser extends BaseParser {
     }
 
     expression(): a.Expression {
-        let left = this.conditionalExpression();
+        let left = this.conditionalExpression(expected);
         if (!this.match(['=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>='])) {
             return left;
         }
         let op = this.advance<BinaryOperator>();
-        let right = this.expression();
+        let right = this.expression(expected);
         return {
             pos: op.pos,
             type: 'binary-expression',

@@ -51,7 +51,6 @@ function parseEscapeSequence(value: string): string {
     }
 }
 
-let encoder = new TextEncoder();
 function parseStringLiteral(value: string): ByteArray | false {
     if (!(value.startsWith('"') && value.endsWith('"'))) {
         return false;

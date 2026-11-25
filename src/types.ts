@@ -1,7 +1,7 @@
 
 import {Decimal} from 'decimal.js';
 
-import {deepCopy, Position, EOF, PrefixOperator, PostfixOperator, BinaryOperator, CQQSymbol, Keyword} from './base.js';
+import {deepCopy, Position, EOF, CQQSymbol, Keyword} from './base.js';
 import {BitTypeStorageData, cTypeBits, dataLayout, POINTERS, ByteArray, Region} from './memory.js';
 
 
@@ -1016,53 +1016,23 @@ export namespace a {
     }
 
     export interface BaseExpression<Type extends string> extends BaseNode<Type> {
-        // empty
+        exprType: t.Type;
     }
 
-    export interface NumberLiteralExpression extends BaseExpression<'number-literal'> {
-        value: Decimal;
+    export interface IdentifierExpression extends BaseExpression<'identifier-expression'> {
+        name: string;
     }
 
-    export interface StringLiteralExpression extends BaseExpression<'string-literal'> {
+    export interface ValueExpression extends BaseExpression<'value-expression'> {
         value: ByteArray;
     }
 
-    export interface KeywordLiteralExpression extends BaseExpression<'keyword-literal'> {
-        value: string;
-    }
+    export type MemberOperator = '.' | '->' | '::';
 
-    export interface CompoundLiteralElement extends BaseNode<'compound-literal-element'> {
-        key: string | number | undefined;
-        value: Value;
-    }
-
-    export interface CompoundLiteralExpression extends BaseExpression<'compound-literal-expression'> {
-        data: CompoundLiteralElement[];
-    }
-
-    export interface ParenthesizedExpression extends BaseExpression<'parenthesized-expression'> {
+    export interface MemberExpression extends BaseExpression<'member-expression'> {
         value: Expression;
-    }
-
-    export interface PrefixExpression extends BaseExpression<'prefix-expression'> {
-        op: PrefixOperator;
-        value: Expression;
-    }
-
-    export interface PostfixExpression extends BaseExpression<'postfix-expression'> {
-        op: PostfixOperator;
-        value: Expression;
-    }
-
-    export interface BinaryExpression extends BaseExpression<'binary-expression'> {
-        op: BinaryOperator;
-        left: Expression;
-        right: Expression;
-    }
-
-    export interface IndexExpression extends BaseExpression<'index-expression'> {
-        value: Expression;
-        indices: Expression[];
+        op: MemberOperator;
+        member: Identifier;
     }
 
     export interface ExpressionArgument extends BaseExpression<'expression-argument'> {
@@ -1081,19 +1051,13 @@ export namespace a {
         args: Argument[];
     }
 
-    export interface ConditionalExpression extends BaseExpression<'conditional-expression'> {
-        condition: Expression;
-        ifTrue: Expression;
-        ifFalse: Expression;
-    }
-
     export interface StatementExpression extends BaseExpression<'statement-expression'> {
         data: BlockStatement;
     }
 
-    export type Expression = Identifier | NumberLiteralExpression | StringLiteralExpression | KeywordLiteralExpression | CompoundLiteralExpression | ParenthesizedExpression | PrefixExpression | PostfixExpression | BinaryExpression | IndexExpression | CallExpression | ConditionalExpression | StatementExpression;
+    export type Expression = IdentifierExpression | ValueExpression | MemberExpression | CallExpression | StatementExpression;
 
-    export type ExpressionNode = Expression | CompoundLiteralElement | Argument;
+    export type ExpressionNode = Expression | Argument;
 
     export interface BaseStatement<Type extends string> extends BaseNode<Type> {
         // empty
