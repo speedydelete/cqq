@@ -397,27 +397,11 @@ export class Parser extends BaseParser {
         return out;
     }
 
-    extendsBinaryExpression(): a.Expression {
-        let left = this.nonMutVolatilePrefixExpression();
-        while (this.match('extends')) {
-            let op = this.advance<BinaryOperator>();
-            let right = this.nonMutVolatilePrefixExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
-        }
-        return left;
-    }
-
     rangeBinaryExpression(): a.Expression {
-        let left = this.extendsBinaryExpression();
+        let left = this.nonMutVolatilePrefixExpression();
         while (this.match(['..<', '..='])) {
             let op = this.advance<BinaryOperator>();
-            let right = this.extendsBinaryExpression();
+            let right = this.nonMutVolatilePrefixExpression();
             left = {
                 pos: op.pos,
                 type: 'binary-expression',

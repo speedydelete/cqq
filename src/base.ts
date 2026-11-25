@@ -146,8 +146,6 @@ export const BINARY_OPERATORS = new Set([
     '<', '<=', '>', '>=', '..<', '..=',
     // booleans
     '&&', '||', '^^',
-    // types
-    'extends',
     // general
     '==', '!=', '~=', '~!=', '??',
     // assignment
@@ -198,7 +196,7 @@ export const KEYWORDS = new Set([
     'true', 'false', 'null',
     'never', 'void', 'bool', 'int', 'uint', 'float16', 'float32', 'float64', 'size', 'ssize', 'char', 'string', 'type', 'any', 'code',
     // operators
-    'mut', 'volatile', 'decltype', 'typeof', 'extends',
+    'mut', 'volatile', 'decltype', 'typeof', 
     // declarations
     'struct', 'union', 'enum', 'class', 'namespace', 'template', 'operator',
     // declaration qualifiers
@@ -233,8 +231,6 @@ export const OVERLOAD_OPERATORS = new Set([
         'binary <', 'binary <=', 'binary >', 'binary >=', 'binary ..<', 'binary ..=',
         // booleans
         'binary &&', 'binary ||', 'binary ^^',
-        // types
-        'binary extends',
         // general
         'binary ==', 'binary !=', 'binary ~=', 'binary ~!=', 'binary ??',
         // assignment
