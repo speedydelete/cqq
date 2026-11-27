@@ -1,7 +1,7 @@
 
-import {Position, CQQError, EOF, PrefixOperator, PostfixOperator, BinaryOperator, SYMBOLS, CQQSymbol, KEYWORDS, BasicKeyword} from './base.js';
+import {Position, HasPos, CQQError, EOF, PrefixOperator, PostfixOperator, BinaryOperator, SYMBOLS, CQQSymbol, KEYWORDS, BasicKeyword} from './base.js';
 import {ByteArray, Region} from './memory.js';
-import {t, Type, Value, SymbolToken, IdentifierToken, KeywordToken, Token, STRING_TOKEN_NAMES, tokenToString, Scope, a} from './types.js';
+import {t, Type, Value, SymbolToken, IdentifierToken, KeywordToken, Token, STRING_TOKEN_NAMES, tokenToString, VariableData, Scope, a} from './types.js';
 
 
 type Matcher = 
@@ -200,6 +200,13 @@ export class BaseParser {
 }
 
 
+interface KeywordArgument {
+    pos: Position;
+    type: 'keyword-argument';
+    name: a.Identifier;
+    value: a.Expression;
+}
+
 export class Parser extends BaseParser {
 
     scope: Scope;
@@ -211,8 +218,96 @@ export class Parser extends BaseParser {
         this.globalRegion = globalRegion;
     }
 
-    implicitCast<T extends a.Expression>(expr: T, type: Type): T {
+    implicitCast(expr: a.Expression, type: Type): a.Expression {
         // todo: implicit casting logic
+    }
+
+    call(pos: HasPos, funcValue: a.Expression, args: (a.Expression | KeywordArgument)[]): a.CallExpression {
+        let func = funcValue.exprType;
+        if (func.type !== 'function') {
+            throw new Error(`Overload is not a function`);
+        }
+        if (func.params.length < args.length) {
+            this.error(pos, `Too many arguments for function call (expected no more than ${func.params.length}, got ${args.length})`);
+        }
+        let outArgs: {[key: number]: a.Expression} = {};
+        let posArgCount = 0;
+        for (let arg of args) {
+            if (arg.type === 'keyword-argument') {
+                if (arg.name.name in outArgs) {
+                    this.error(arg, `Parameter ${arg.name.name} was provided twice`);
+                }
+                let found = false;
+                for (let i = 0; i < func.params.length; i++) {
+                    let param = func.params[i];
+                    if (param.name === arg.name.name) {
+                        outArgs[i] = arg.value;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    this.error(arg, `Nonexistent parameter '${arg.name.name}'`);
+                }
+            } else {
+                if (posArgCount >= func.params.length) {
+                    this.error(arg, `Too many arguments for function call`);
+                }
+                if (posArgCount in outArgs) {
+                    let param = func.params[posArgCount];
+                    this.error(arg, `Parameter ${param.name !== undefined ? `'${param.name}'` : posArgCount} was provided twice`);
+                }
+                outArgs[posArgCount] = arg;
+                posArgCount++;
+            }
+        }
+        return {
+            pos: pos.pos,
+            type: 'call-expression',
+            exprType: func.returnType,
+            func: funcValue,
+            args: outArgs,
+        };
+    }
+
+    overloadCall(pos: HasPos, func: a.Identifier, args: (a.Expression | KeywordArgument)[]) {
+        let overloads = this.scope.getFunction(func.name);
+        if (overloads === undefined) {
+            this.error(func, `Function '${func.name}' is not defined`);
+        }
+        for (let value of overloads) {
+            try {
+                let funcValue: a.Expression = {
+                    pos: func.pos,
+                    type: 'identifier-expression',
+                    exprType: value.type,
+                    name: func.name,
+                };
+                return this.call(pos, funcValue, args);
+            } catch (error) {
+                if (error instanceof CQQError) {
+                    continue;
+                } else {
+                    throw error;
+                }
+            }
+        }
+        this.error(pos, `No overload found for function '${func.name}' with arguments ${args.map(arg => {
+            if (arg.type === 'keyword-argument') {
+                return `${arg.name} = ${t.toString(arg.value.exprType)}`;
+            } else {
+                return t.toString(arg.exprType);
+            }
+        }).join(', ')}`);
+    }
+
+    identifier(): a.Identifier {
+        let token = this.eat('identifier');
+        return {
+            pos: token.pos,
+            type: 'identifier',
+            name: token.name,
+        };
     }
 
     identifierExpression(): a.IdentifierExpression {
@@ -224,7 +319,7 @@ export class Parser extends BaseParser {
         return {
             pos: token.pos,
             type: 'identifier-expression',
-            exprType: variable.type,
+            exprType: t.reference(variable.type),
             name: token.name,
         };
     }
@@ -284,19 +379,32 @@ export class Parser extends BaseParser {
         }
     }
 
+    operator(token: KeywordToken | SymbolToken): a.Identifier;
+    operator(pos: HasPos, op: string): a.Identifier;
+    operator(value: KeywordToken | SymbolToken | HasPos, op?: string): a.Identifier {
+        if (op !== undefined) {
+            return {
+                pos: value.pos,
+                type: 'identifier',
+                name: `operator ${op}`,
+            };
+        } else {
+            return {
+                pos: value.pos,
+                type: 'identifier',
+                name: `operator ${(value as KeywordToken | SymbolToken).value}`,
+            };
+        }
+    }
+
     mutVolatilePrefixExpression(): a.Expression {
         let ops: PrefixOperatorToken[] = [];
         while (this.match(['mut', 'volatile'])) {
             ops.unshift(this.advance<PrefixOperator>());
         }
         let out = this.primaryExpression();
-        for (let token of ops) {
-            out = {
-                pos: token.pos,
-                type: 'prefix-expression',
-                op: token.value,
-                value: out,
-            };
+        for (let op of ops) {
+            out = this.overloadCall(op, this.operator(op), [out]);
         }
         return out;
     }
@@ -304,24 +412,19 @@ export class Parser extends BaseParser {
     postfixCallIndexMemberExpression(): a.Expression {
         let out = this.mutVolatilePrefixExpression();
         while (true) {
-            if (this.match(['*', '&'])) {
+            if (this.match(['*', '&', '?'])) {
                 // normal postfix operator
                 let op = this.advance<PostfixOperator>();
-                out = {
-                    pos: op.pos,
-                    type: 'postfix-expression',
-                    op: op.value,
-                    value: out,
-                };
+                out = this.overloadCall(op, this.operator(op), [out]);
             } else if (this.match('[')) {
                 // index expression
                 let op = this.advance();
-                let indices: a.Expression[] = [];
+                let args: a.Expression[] = [out];
                 while (true) {
                     if (this.match(']')) {
                         break;
                     }
-                    indices.push(this.expression());
+                    args.push(this.expression());
                     if (this.match(',')) {
                         this.advance();
                         continue;
@@ -330,16 +433,11 @@ export class Parser extends BaseParser {
                     }
                 }
                 this.eat(']');
-                out = {
-                    pos: op.pos,
-                    type: 'index-expression',
-                    value: out,
-                    indices,
-                };
+                out = this.overloadCall(op, this.operator(op, '[]'), [out]);
             } else if (this.match('(')) {
                 // function call
                 let op = this.advance();
-                let args: a.Argument[] = [];
+                let args: (a.Expression | KeywordArgument)[] = [];
                 while (true) {
                     if (this.match(')')) {
                         break;
@@ -355,12 +453,7 @@ export class Parser extends BaseParser {
                             value,
                         });
                     } else {
-                        let value = this.expression();
-                        args.push({
-                            pos: value.pos,
-                            type: 'expression-argument',
-                            value,
-                        })
+                        args.push(this.expression());
                     }
                     if (this.match(',')) {
                         this.advance();
@@ -369,23 +462,12 @@ export class Parser extends BaseParser {
                         break;
                     }
                 }
-                this.eat(']');
-                out = {
-                    pos: op.pos,
-                    type: 'call-expression',
-                    func: out,
-                    args,
-                };
+                this.eat(')');
+                out = this.call(op, out, args);
             } else if (this.match(['.', '->', '::'])) {
                 let op = this.advance<BinaryOperator>();
                 let right = this.mutVolatilePrefixExpression();
-                out = {
-                    pos: op.pos,
-                    type: 'binary-expression',
-                    op: op.value,
-                    left: out,
-                    right,
-                }
+                out = this.overloadCall(op, this.operator(op), [out, right]);
             } else {
                 break;
             }
@@ -399,13 +481,8 @@ export class Parser extends BaseParser {
             ops.unshift(this.advance<PrefixOperator>());
         }
         let out = this.primaryExpression();
-        for (let token of ops) {
-            out = {
-                pos: token.pos,
-                type: 'prefix-expression',
-                op: token.value,
-                value: out,
-            };
+        for (let op of ops) {
+            out = this.overloadCall(op, this.operator(op), [out]);
         }
         return out;
     }
@@ -415,13 +492,7 @@ export class Parser extends BaseParser {
         while (this.match(['..<', '..='])) {
             let op = this.advance<BinaryOperator>();
             let right = this.nonMutVolatilePrefixExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -431,13 +502,7 @@ export class Parser extends BaseParser {
         while (this.match(['*', '/', '%'])) {
             let op = this.advance<BinaryOperator>();
             let right = this.rangeBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -447,13 +512,7 @@ export class Parser extends BaseParser {
         while (this.match(['+', '-'])) {
             let op = this.advance<BinaryOperator>();
             let right = this.mulDivModBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -463,13 +522,7 @@ export class Parser extends BaseParser {
         while (this.match(['<<', '>>'])) {
             let op = this.advance<BinaryOperator>();
             let right = this.addSubBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -479,13 +532,7 @@ export class Parser extends BaseParser {
         while (this.match(['<', '<=', '>', '>='])) {
             let op = this.advance<BinaryOperator>();
             let right = this.shiftBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -495,13 +542,7 @@ export class Parser extends BaseParser {
         while (this.match(['==', '!=', '~=', '~!='])) {
             let op = this.advance<BinaryOperator>();
             let right = this.relationalBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -511,13 +552,7 @@ export class Parser extends BaseParser {
         while (this.match('&')) {
             let op = this.advance<BinaryOperator>();
             let right = this.equalityBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -527,13 +562,7 @@ export class Parser extends BaseParser {
         while (this.match('^')) {
             let op = this.advance<BinaryOperator>();
             let right = this.bitwiseANDBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -543,13 +572,7 @@ export class Parser extends BaseParser {
         while (this.match('|')) {
             let op = this.advance<BinaryOperator>();
             let right = this.bitwiseXORBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -559,13 +582,7 @@ export class Parser extends BaseParser {
         while (this.match('&&')) {
             let op = this.advance<BinaryOperator>();
             let right = this.bitwiseORBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -575,13 +592,7 @@ export class Parser extends BaseParser {
         while (this.match('^^')) {
             let op = this.advance<BinaryOperator>();
             let right = this.logicalANDBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -591,13 +602,7 @@ export class Parser extends BaseParser {
         while (this.match('||')) {
             let op = this.advance<BinaryOperator>();
             let right = this.logicalXORBinaryExpression();
-            left = {
-                pos: op.pos,
-                type: 'binary-expression',
-                op: op.value,
-                left,
-                right,
-            };
+            left = this.overloadCall(op, this.operator(op), [left, right]);
         }
         return left;
     }
@@ -611,29 +616,17 @@ export class Parser extends BaseParser {
         let ifTrue = this.expression();
         this.eat(':');
         let ifFalse = this.expression();
-        return {
-            pos: op.pos,
-            type: 'conditional-expression',
-            condition,
-            ifTrue,
-            ifFalse,
-        }
+        return this.overloadCall(op, this.operator(op, '?:'), [condition, ifTrue, ifFalse]);
     }
 
     expression(): a.Expression {
-        let left = this.conditionalExpression(expected);
+        let left = this.conditionalExpression();
         if (!this.match(['=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>='])) {
             return left;
         }
         let op = this.advance<BinaryOperator>();
-        let right = this.expression(expected);
-        return {
-            pos: op.pos,
-            type: 'binary-expression',
-            op: op.value,
-            left,
-            right,
-        };
+        let right = this.expression();
+        return this.overloadCall(op, this.operator(op, '?:'), [left, right]);
     }
 
 }

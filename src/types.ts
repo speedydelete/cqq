@@ -187,16 +187,7 @@ export namespace t {
 
     export type Number = Integer | Floating | ComptimeNumber;
 
-    export interface Auto extends BaseType<'auto'> {
-        // empty
-    }
-
-    export const auto: Auto = {
-        type: 'auto',
-        _key: 'auto',
-    };
-
-    export type Primitive = Never | Void | Bool | Number | Auto;
+    export type Primitive = Never | Void | Bool | Number;
     export type PrimitiveObject = Extract<Primitive, BaseObject<string>>;
 
     // derived object types
@@ -290,7 +281,8 @@ export namespace t {
 
     export interface Parameter {
         type: Object;
-        name?: string;
+        name: string | undefined;
+        defaultValue: Value | undefined;
     }
 
     export interface Function extends BaseType<'function'> {
@@ -595,20 +587,12 @@ export namespace t {
     export type Derived = Pointer | Reference | Array | Function | Struct | Union | Slice | Sum | Enum;
     export type DerivedObject = Extract<Derived, BaseObject<string>>;
 
-    // Bool | Int | Uint | Float16 | Float32 | Float64 | ComptimeNumber | Auto | Pointer | Reference | Array | Function | Struct | Union | Slice | Sum | Enum
+    // Never | Void | Bool | Int | Uint | Float16 | Float32 | Float64 | ComptimeNumber | Pointer | Reference | Array | Function | Struct | Union | Slice | Sum | Enum
     export type Type = Primitive | Derived;
 
     export type Object = Extract<Type, BaseObject<string>>;
     export type NonVoidObject = Exclude<Object, Void>;
     export type NonObject = Exclude<Type, Object>;
-
-    export function isObject(type: Type): type is Object {
-        return !(type.type === 'never' || type.type === 'auto' || type.type === 'reference' || type.type === 'function');
-    }
-
-    export function isEqual(x: Type, y: Type): boolean {
-        return getKey(x) === getKey(y);
-    }
 
     export namespace meta {
 
@@ -760,6 +744,91 @@ export namespace t {
             }
         }
 
+    }
+
+    export function eq(x: Type, y: Type): boolean {
+        return getKey(x) === getKey(y);
+    }
+
+    export function isObject(type: Type): type is Object {
+        return !(type.type === 'never' || type.type === 'reference' || type.type === 'function');
+    }
+
+    function indent(value: string): string {
+        return value.split('\n').map(line => `    ${line}`).join('\n');
+    }
+
+    // Never | Void | Bool | Int | Uint | Float16 | Float32 | Float64 | ComptimeNumber | Pointer | Reference | Array | Function | Struct | Union | Slice | Sum | Enum
+    export function toString(type: Type, depth: number = 0, _ignoreName: boolean = true): string {
+        if (type.name !== undefined && !_ignoreName) {
+            if (depth <= 0) {
+                return type.name.name;
+            } else {
+                return toString(type, depth - 1, true);
+            }
+        }
+        if (type.type === 'never') {
+            return 'never';
+        } else if (type.type === 'function') {
+            return `(${toString(type.returnType, depth - 1, false)}(${type.params.map(param => {
+                let out = toString(param.type, depth - 1, false);
+                if (param.name !== undefined) {
+                    out += ` ${param.name}`;
+                }
+                return out;
+            }).join(', ')}))`;
+        } else if (type.type === 'reference') {
+            return `${toString(type, depth - 1, false)}&`;
+        }
+        let out: string;
+        if (type.type === 'void' || type.type === 'bool' || type.type === 'float16' || type.type === 'float32' || type.type === 'float64' || type.type === 'comptime_number') {
+            out = type.type;
+        } else if (type.type === 'int' || type.type === 'uint') {
+            out = `${type.type}${type.bits}`;
+        } else if (type.type === 'pointer') {
+            out = `${toString(type, depth - 1, false)}*`;
+        } else if (type.type === 'array') {
+            out = `${toString(type, depth - 1, false)}[${type.len}]`;
+        } else if (type.type === 'struct') {
+            out = `struct`;
+            if (type.inheritsFrom.length > 0) {
+                out += ` extends ${type.inheritsFrom.map(value => toString(value.type, depth - 1, false)).join(', ')}`;
+            }
+            if (type.members.length === 0) {
+                out += ` {}`;
+            } else {
+                out += ` {\n`;
+                for (let member of type.members) {
+                    out += `    ${indent(toString(member.type, depth - 1, false))}`;
+                    if (member.name !== undefined) {
+                        out += ` ${member.name}`;
+                    }
+                    out += ';\n';
+                }
+                out += '}';
+            }
+        } else if (type.type === 'union') {
+            out = `union {\n`;
+            for (let member of type.members) {
+                out += `    ${indent(toString(member.type, depth - 1, false))};\n`;
+            }
+            out += '}';
+        } else if (type.type === 'slice') {
+            out = `${toString(type.items, depth - 1, false)}[]`;
+        } else if (type.type === 'sum') {
+            out = type.members.map(value => toString(value, depth - 1, false)).join('|');
+        } else if (type.type === 'enum') {
+            out = `enum : ${toString(type.of, depth - 1, false)}`;
+        } else {
+            throw new Error(`Invalid type: '${type satisfies never}'`);
+        }
+        if (type.volatile) {
+            out = `volatile ${out}`;
+        }
+        if (type.mut) {
+            out = `mut ${out}`;
+        }
+        return out;
     }
 
     export interface Value {
@@ -949,7 +1018,15 @@ export function tokenToString(token: Token | EOF): string {
 
 export interface VariableData {
     name: string;
-    type: Type;
+    type: t.Object;
+    region: Region;
+    const?: boolean;
+    value?: ByteArray;
+}
+
+export interface FunctionData {
+    name: string;
+    type: t.Function;
     region: Region;
     const?: boolean;
     value?: ByteArray;
@@ -959,7 +1036,7 @@ export class Scope {
 
     parent: Scope | undefined;
     variables: Map<string, VariableData>;
-    functions: Map<string, VariableData[]>;
+    functions: Map<string, FunctionData[]>;
     region: Region;
 
     constructor(parent?: Scope) {
@@ -988,11 +1065,11 @@ export class Scope {
         this.variables.set(name, value);
     }
 
-    getFunction(name: string): VariableData[] | undefined {
+    getFunction(name: string): FunctionData[] | undefined {
         return this.functions.get(name);
     }
 
-    addFunction(name: string, value: VariableData): void {
+    addFunction(name: string, value: FunctionData): void {
         let old = this.functions.get(name);
         if (old !== undefined) {
             old.push(value);
@@ -1035,20 +1112,9 @@ export namespace a {
         member: Identifier;
     }
 
-    export interface ExpressionArgument extends BaseExpression<'expression-argument'> {
-        value: Expression;
-    }
-
-    export interface KeywordArgument extends BaseExpression<'keyword-argument'> {
-        name: Identifier;
-        value: Expression;
-    }
-
-    export type Argument = ExpressionArgument | KeywordArgument;
-
     export interface CallExpression extends BaseExpression<'call-expression'> {
         func: Expression;
-        args: Argument[];
+        args: {[key: number]: a.Expression};
     }
 
     export interface StatementExpression extends BaseExpression<'statement-expression'> {
@@ -1057,7 +1123,7 @@ export namespace a {
 
     export type Expression = IdentifierExpression | ValueExpression | MemberExpression | CallExpression | StatementExpression;
 
-    export type ExpressionNode = Expression | Argument;
+    export type ExpressionNode = Expression;
 
     export interface BaseStatement<Type extends string> extends BaseNode<Type> {
         // empty

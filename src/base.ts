@@ -1,6 +1,4 @@
 
-import './globals.d.ts';
-
 import * as path from 'node:path';
 
 
@@ -135,7 +133,7 @@ export type PrefixOperator = typeof PREFIX_OPERATORS extends Set<infer T> ? T : 
 
 export const POSTFIX_OPERATORS = new Set([
     // types
-    'mut', 'volatile', '*', '&',
+    'mut', 'volatile', '*', '&', '?',
 ] as const);
 export type PostfixOperator = typeof POSTFIX_OPERATORS extends Set<infer T> ? T : never;
 
@@ -168,13 +166,9 @@ export const SYMBOLS = new Set([
         '*', '&',
         // booleans
         '!',
-        // types
-        'mut', 'volatile',
-        // general
-        'decltype', 'typeof',
     // postfix unary operators
         // types
-        '*', '&',
+        '*', '&', '?',
     // binary operators
         // numbers
         '+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>',
@@ -229,7 +223,7 @@ export const OPERATORS = new Set([
         'decltype', 'typeof',
     // postfix unary
         // types
-        'mut', 'volatile', '*', '&',
+        'mut', 'volatile', '*', '&', '?',
     // binary
         // numbers
         '+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>',

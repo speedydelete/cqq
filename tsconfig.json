@@ -9,10 +9,7 @@
         "lib": ["ESNext", "DOM"],
         "module": "NodeNext",
         "resolveJsonModule": true,
-        "types": ["node"],
-        "noUnusedLocals": true,
-        "allowUnreachableCode": false,
-        "allowUnusedLabels": false,
+        "types": ["node"]
     },
     "include": ["./src/**/*.ts"]
 }

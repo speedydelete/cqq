@@ -6,8 +6,10 @@
     "author": "speedydelete",
     "type": "module",
     "dependencies": {
-        "@types/node": "^26.6.6",
-        "decimal.js": "^10.6.0",
+        "decimal.js": "^10.6.0"
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.11",
         "typescript": "^7.0.2"
     }
 }
